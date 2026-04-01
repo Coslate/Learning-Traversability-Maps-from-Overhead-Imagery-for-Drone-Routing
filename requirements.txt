@@ -3,3 +3,7 @@ pillow==10.4.0
 matplotlib==3.8.4
 tqdm==4.66.5
 torchgeo==0.6.2
+transformers>=4.37.0
+accelerate>=0.27.0
+
+
