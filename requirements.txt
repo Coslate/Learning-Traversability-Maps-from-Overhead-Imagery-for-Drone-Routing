@@ -5,5 +5,5 @@ tqdm==4.66.5
 torchgeo==0.6.2
 transformers>=4.37.0
 accelerate>=0.27.0
-
+pytest>=7.0
 
