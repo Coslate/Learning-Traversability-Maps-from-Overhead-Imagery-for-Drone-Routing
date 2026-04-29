@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from typing import Callable, Dict, Iterable, List, MutableMapping, Union
 
 import torch
+from torchvision.transforms import InterpolationMode
 from torchvision.transforms import functional as TF
 
 SampleValue = Union[torch.Tensor, str]
@@ -85,6 +86,38 @@ class RandomCropPair:
 
 
 @dataclass
+class RandomScalePair:
+    scale_range: tuple[float, float] = (0.75, 1.5)
+
+    def __call__(self, sample: Sample) -> Sample:
+        min_scale, max_scale = self.scale_range
+        if min_scale <= 0 or max_scale <= 0:
+            raise ValueError("scale_range values must be positive")
+        if min_scale > max_scale:
+            raise ValueError("scale_range min must be <= max")
+
+        image = sample["image"]
+        mask = sample["mask"]
+        _, h, w = image.shape
+        scale = random.uniform(min_scale, max_scale)
+        new_h = max(1, int(round(h * scale)))
+        new_w = max(1, int(round(w * scale)))
+
+        sample["image"] = TF.resize(
+            image,
+            [new_h, new_w],
+            interpolation=InterpolationMode.BILINEAR,
+            antialias=True,
+        )
+        sample["mask"] = TF.resize(
+            mask.unsqueeze(0),
+            [new_h, new_w],
+            interpolation=InterpolationMode.NEAREST,
+        ).squeeze(0)
+        return sample
+
+
+@dataclass
 class CenterCropPair:
     size: int
 
@@ -123,6 +156,47 @@ class RandomVerticalFlipPair:
 
 
 @dataclass
+class RandomColorJitterImage:
+    brightness: float = 0.3
+    contrast: float = 0.3
+    saturation: float = 0.3
+    hue: float = 0.05
+    p: float = 0.8
+
+    def __call__(self, sample: Sample) -> Sample:
+        if random.random() >= self.p:
+            return sample
+
+        image = sample["image"]
+        transforms = [
+            lambda img: TF.adjust_brightness(img, random.uniform(max(0.0, 1.0 - self.brightness), 1.0 + self.brightness)),
+            lambda img: TF.adjust_contrast(img, random.uniform(max(0.0, 1.0 - self.contrast), 1.0 + self.contrast)),
+            lambda img: TF.adjust_saturation(img, random.uniform(max(0.0, 1.0 - self.saturation), 1.0 + self.saturation)),
+            lambda img: TF.adjust_hue(img, random.uniform(-self.hue, self.hue)),
+        ]
+        random.shuffle(transforms)
+        for transform in transforms:
+            image = transform(image)
+        sample["image"] = image.clamp(0.0, 1.0)
+        return sample
+
+
+@dataclass
+class RandomGaussianBlurImage:
+    kernel_size: int = 5
+    sigma: tuple[float, float] = (0.1, 1.5)
+    p: float = 0.3
+
+    def __call__(self, sample: Sample) -> Sample:
+        if random.random() >= self.p:
+            return sample
+
+        sigma = random.uniform(self.sigma[0], self.sigma[1])
+        sample["image"] = TF.gaussian_blur(sample["image"], kernel_size=[self.kernel_size, self.kernel_size], sigma=[sigma, sigma])
+        return sample
+
+
+@dataclass
 class NormalizeImage:
     mean: List[float]
     std: List[float]
@@ -149,16 +223,33 @@ DEFAULT_MEAN = [0.485, 0.456, 0.406]
 DEFAULT_STD = [0.229, 0.224, 0.225]
 
 
-def build_train_transforms(patch_size: int) -> ComposeDict:
-    return ComposeDict(
-        [
-            EnsureTensorTypes(),
-            RandomCropPair(size=patch_size),
-            RandomHorizontalFlipPair(p=0.5),
-            RandomVerticalFlipPair(p=0.5),
-            NormalizeImage(mean=DEFAULT_MEAN, std=DEFAULT_STD),
-        ]
-    )
+def build_train_transforms(patch_size: int, aug_preset: str = "basic") -> ComposeDict:
+    if aug_preset == "basic":
+        return ComposeDict(
+            [
+                EnsureTensorTypes(),
+                RandomCropPair(size=patch_size),
+                RandomHorizontalFlipPair(p=0.5),
+                RandomVerticalFlipPair(p=0.5),
+                NormalizeImage(mean=DEFAULT_MEAN, std=DEFAULT_STD),
+            ]
+        )
+
+    if aug_preset == "strong":
+        return ComposeDict(
+            [
+                EnsureTensorTypes(),
+                RandomScalePair(scale_range=(0.75, 1.5)),
+                RandomCropPair(size=patch_size),
+                RandomHorizontalFlipPair(p=0.5),
+                RandomVerticalFlipPair(p=0.5),
+                RandomColorJitterImage(brightness=0.3, contrast=0.3, saturation=0.3, hue=0.05, p=0.8),
+                RandomGaussianBlurImage(kernel_size=5, sigma=(0.1, 1.5), p=0.3),
+                NormalizeImage(mean=DEFAULT_MEAN, std=DEFAULT_STD),
+            ]
+        )
+
+    raise ValueError(f"Unsupported aug_preset: {aug_preset}")
 
 def build_val_transforms(patch_size: int) -> ComposeDict:
     return ComposeDict(

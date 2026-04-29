@@ -49,6 +49,7 @@ class LoveDAConfig:
     num_workers: int = 0
     download: bool = False
     seed: int = 0
+    aug_preset: str = "basic"
 
 
 class WrappedLoveDAScene(Dataset):
@@ -58,13 +59,25 @@ class WrappedLoveDAScene(Dataset):
     cleanly after concatenation.
     """
 
-    def __init__(self, root: str, split: str, scene: str, patch_size: int, download: bool = False) -> None:
+    def __init__(
+        self,
+        root: str,
+        split: str,
+        scene: str,
+        patch_size: int,
+        download: bool = False,
+        aug_preset: str = "basic",
+    ) -> None:
         if split not in {"train", "val", "test"}:
             raise ValueError(f"Unsupported split: {split}")
         if scene not in {"urban", "rural"}:
             raise ValueError(f"Unsupported scene: {scene}")
 
-        base_transform = build_train_transforms(patch_size) if split == "train" else build_val_transforms(patch_size)
+        base_transform = (
+            build_train_transforms(patch_size, aug_preset=aug_preset)
+            if split == "train"
+            else build_val_transforms(patch_size)
+        )
         transform = ComposeDict([base_transform, AddMetadata(split=split, scene=scene)])
         self.dataset = LoveDA(root=root, split=split, scene=[scene], transforms=transform, download=download)
         self.split = split
@@ -99,6 +112,7 @@ def build_scene_datasets(config: LoveDAConfig) -> Dict[str, Dict[str, WrappedLov
             scene=scene,
             patch_size=config.patch_size,
             download=config.download,
+            aug_preset=config.aug_preset,
         )
 
     for scene in config.val_scenes:
@@ -108,6 +122,7 @@ def build_scene_datasets(config: LoveDAConfig) -> Dict[str, Dict[str, WrappedLov
             scene=scene,
             patch_size=config.patch_size,
             download=config.download,
+            aug_preset=config.aug_preset,
         )
 
     return scene_datasets

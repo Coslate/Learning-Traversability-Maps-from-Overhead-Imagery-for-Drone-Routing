@@ -14,7 +14,7 @@ from torch.utils.data import DataLoader
 from tqdm import tqdm
 
 from loveda_project.data import CLASS_NAMES, IGNORE_INDEX, LoveDAConfig, build_dataloaders, save_json, set_seed
-from loveda_project.losses import CriterionConfig, SegmentationCriterion
+from loveda_project.losses import CriterionConfig, SegmentationCriterion, compute_class_weights
 from loveda_project.metrics import SegmentationMeter, save_confusion_matrix_plot, save_metrics_json
 from loveda_project.modeling import SegformerBuildConfig, build_segformer_model
 
@@ -34,6 +34,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--batch-size", type=int, default=4)
     parser.add_argument("--num-workers", type=int, default=4)
     parser.add_argument("--patch-size", type=int, default=512)
+    parser.add_argument("--aug-preset", type=str, default="basic", choices=["basic", "strong"])
     parser.add_argument("--lr", type=float, default=6e-5)
     parser.add_argument(
         "--scheduler-type",
@@ -45,8 +46,17 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--warmup-epochs", type=int, default=2)
 
     parser.add_argument("--weight-decay", type=float, default=1e-2)
-    parser.add_argument("--loss-name", type=str, default="ce", choices=["ce", "ce_dice"])
+    parser.add_argument("--loss-name", type=str, default="ce", choices=["ce", "ce_dice", "focal"])
     parser.add_argument("--dice-weight", type=float, default=0.25)
+    parser.add_argument(
+        "--class-weight-mode",
+        type=str,
+        default="none",
+        choices=["none", "inverse", "effective", "median"],
+    )
+    parser.add_argument("--class-stats", type=str, default=None)
+    parser.add_argument("--class-weight-beta", type=float, default=0.9999)
+    parser.add_argument("--focal-gamma", type=float, default=2.0)
     parser.add_argument("--amp", action="store_true")
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--device", type=str, default="cuda" if torch.cuda.is_available() else "cpu")
@@ -126,6 +136,19 @@ def iter_per_class_iou(per_class_iou, class_names, ignore_index):
             if class_idx == ignore_index:
                 continue
             yield class_names[class_idx], float(class_iou)
+
+
+def load_class_counts(class_stats_path: str | Path, class_names: Dict[int, str]) -> torch.Tensor:
+    with Path(class_stats_path).open("r", encoding="utf-8") as f:
+        payload = json.load(f)
+
+    raw_counts = payload.get("counts", payload)
+    counts = torch.zeros(max(class_names) + 1, dtype=torch.float32)
+    for class_id, class_name in class_names.items():
+        if class_name not in raw_counts:
+            raise ValueError(f"Missing class '{class_name}' in class stats: {class_stats_path}")
+        counts[class_id] = float(raw_counts[class_name])
+    return counts
 
 def build_scheduler(
     optimizer: torch.optim.Optimizer,
@@ -250,11 +273,39 @@ def main() -> None:
         num_workers=args.num_workers,
         download=False,
         seed=args.seed,
+        aug_preset=args.aug_preset,
     )
     _, loaders = build_dataloaders(config)
 
     device = torch.device(args.device)
     num_classes = len(CLASS_NAMES)
+    class_weights = None
+    if args.class_weight_mode != "none":
+        if args.class_stats is None:
+            raise ValueError("--class-stats is required when --class-weight-mode is not 'none'")
+        class_counts = load_class_counts(args.class_stats, CLASS_NAMES)
+        class_weights = compute_class_weights(
+            class_counts=class_counts,
+            mode=args.class_weight_mode,
+            ignore_index=IGNORE_INDEX,
+            beta=args.class_weight_beta,
+        )
+        class_weight_payload = {
+            CLASS_NAMES[class_id]: float(class_weights[class_id].item())
+            for class_id in sorted(CLASS_NAMES)
+        }
+        save_json(
+            {
+                "mode": args.class_weight_mode,
+                "beta": args.class_weight_beta,
+                "class_stats": args.class_stats,
+                "weights": class_weight_payload,
+            },
+            output_dir / "class_weights.json",
+        )
+        print(f"Using {args.class_weight_mode} class weights:")
+        for class_id in sorted(CLASS_NAMES):
+            print(f"  {CLASS_NAMES[class_id]}: {class_weights[class_id].item():.6f}")
 
     model = build_segformer_model(
         SegformerBuildConfig(
@@ -271,6 +322,8 @@ def main() -> None:
             ignore_index=IGNORE_INDEX,
             loss_name=args.loss_name,
             dice_weight=args.dice_weight,
+            class_weights=class_weights,
+            focal_gamma=args.focal_gamma,
         )
     ).to(device)
 

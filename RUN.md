@@ -116,6 +116,54 @@ PYTHONPATH=src python scripts/train_segformer.py \
   --wandb-project loveda-segformer \
   --wandb-run-name b0_pt_cedice_w0p25_warmcos4_lr8en5_patch512_test
 
+PYTHONPATH=src python scripts/train_segformer.py \
+  --root ./data \
+  --output-dir ./outputs/seg_release/pr03_b1_cedice_median_warmcos \
+  --variant segformer-b1 \
+  --pretrained \
+  --epochs 45 \
+  --batch-size 2 \
+  --lr 6e-5 \
+  --scheduler-type warmup+cosine \
+  --warmup-epochs 5 \
+  --min-lr 1e-6 \
+  --weight-decay 1e-2 \
+  --loss-name ce_dice \
+  --dice-weight 0.25 \
+  --class-weight-mode median \
+  --class-stats outputs/class_stats/urban_rural.json \
+  --amp \
+  --use-wandb \
+  --wandb-project loveda-segformer \
+  --wandb-run-name b1_pt_cedice_effective_warmcos45_patch512
+
+PYTHONPATH=src python scripts/train_segformer.py \
+  --root ./data \
+  --output-dir ./outputs/seg_release/pr03_b1_cedice_inverse_warmcos \
+  --variant segformer-b1 \
+  --pretrained \
+  --epochs 45 \
+  --batch-size 2 \
+  --lr 6e-5 \
+  --scheduler-type warmup+cosine \
+  --warmup-epochs 5 \
+  --min-lr 1e-6 \
+  --weight-decay 1e-2 \
+  --loss-name ce_dice \
+  --dice-weight 0.25 \
+  --class-weight-mode inverse \
+  --class-stats outputs/class_stats/urban_rural.json \
+  --amp \
+  --use-wandb \
+  --wandb-project loveda-segformer \
+  --wandb-run-name b1_pt_cedice_inverse_warmcos45_patch512  
+
+# Calculate class stats
+PYTHONPATH=src python scripts/compute_class_stats.py \
+  --root ./data \
+  --train-scenes urban rural \
+  --output outputs/class_stats/urban_rural.json
+
 # Only get the first 4 samples from ./data/Val concatenated ['urban', 'rural'] dataset.
 PYTHONPATH=src python scripts/eval_segformer.py \
   --checkpoint outputs/day3_day5_warmcos/checkpoints/best_model.pth \
@@ -127,4 +175,9 @@ PYTHONPATH=src python scripts/eval_segformer.py \
 PYTHONPATH=src python scripts/eval_segformer.py \
   --checkpoint outputs/day3_day5_warmcos/checkpoints/best_model.pth \
   --root ./data \
-  --output-dir outputs/eval_full
+  --output-dir outputs/eval_day3_day5_warmcos
+
+PYTHONPATH=src python scripts/eval_segformer.py \
+  --checkpoint outputs/seg_release/pr03_b1_cedice_median_warmcos/checkpoints/best_model.pth \
+  --root ./data \
+  --output-dir outputs/eval_pr03_b1_cedice_median_warmcos
