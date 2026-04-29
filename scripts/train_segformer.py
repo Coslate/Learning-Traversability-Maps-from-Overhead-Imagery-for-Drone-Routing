@@ -60,7 +60,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--amp", action="store_true")
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--device", type=str, default="cuda" if torch.cuda.is_available() else "cpu")
-    parser.add_argument("--save-every", type=int, default=1)
+    parser.add_argument(
+        "--save-every",
+        type=int,
+        default=5,
+        help="Save epoch_NNN.pth every N epochs; use 0 to disable periodic epoch checkpoints.",
+    )
     parser.add_argument(
         "--train-scenes",
         nargs="+",
@@ -257,6 +262,8 @@ def train_one_epoch(
 
 def main() -> None:
     args = parse_args()
+    if args.save_every < 0:
+        raise ValueError("--save-every must be >= 0")
     set_seed(args.seed)
 
     output_dir = Path(args.output_dir)
@@ -436,7 +443,7 @@ def main() -> None:
 
         save_json({"history": history}, output_dir / "history.json")
 
-        if epoch % args.save_every == 0:
+        if args.save_every > 0 and epoch % args.save_every == 0:
             torch.save(
                 {
                     "epoch": epoch,
