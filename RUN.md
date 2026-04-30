@@ -324,6 +324,57 @@ PYTHONPATH=src python scripts/train_segformer.py \
   --wandb-project loveda-segformer \
   --wandb-run-name b2_pt_cedice_median_strong_warmcos45_patch512
 
+PYTHONPATH=src python scripts/train_segformer.py \
+  --root ./data \
+  --output-dir ./outputs/seg_release/ablate_b2_cedice_inverse_patch1024 \
+  --variant segformer-b2 \
+  --pretrained \
+  --epochs 45 \
+  --batch-size 2 \
+  --grad-accum-steps 4 \
+  --patch-size 1024 \
+  --lr 3e-5 \
+  --scheduler-type warmup+cosine \
+  --warmup-epochs 5 \
+  --min-lr 1e-6 \
+  --weight-decay 1e-2 \
+  --loss-name ce_dice \
+  --dice-weight 0.25 \
+  --class-weight-mode inverse \
+  --class-stats outputs/class_stats/urban_rural.json \
+  --aug-preset basic \
+  --amp \
+  --save-every 0 \
+  --use-wandb \
+  --wandb-project loveda-segformer \
+  --wandb-run-name b2_pt_cedice_inverse_basic_patch1024_warmcos45
+
+PYTHONPATH=src python scripts/train_segformer.py \
+  --root ./data \
+  --output-dir ./outputs/seg_release/ablate_b2_cedice_inverse_strong_patch1024 \
+  --variant segformer-b2 \
+  --pretrained \
+  --epochs 45 \
+  --batch-size 2 \
+  --grad-accum-steps 4 \
+  --patch-size 1024 \
+  --lr 3e-5 \
+  --scheduler-type warmup+cosine \
+  --warmup-epochs 5 \
+  --min-lr 1e-6 \
+  --weight-decay 1e-2 \
+  --loss-name ce_dice \
+  --dice-weight 0.25 \
+  --class-weight-mode inverse \
+  --class-stats outputs/class_stats/urban_rural.json \
+  --aug-preset strong \
+  --amp \
+  --save-every 0 \
+  --use-wandb \
+  --wandb-project loveda-segformer \
+  --wandb-run-name b2_pt_cedice_inverse_strong_patch1024_warmcos45
+
+
 # Calculate class stats
 PYTHONPATH=src python scripts/compute_class_stats.py \
   --root ./data \
@@ -347,3 +398,108 @@ PYTHONPATH=src python scripts/eval_segformer.py \
   --checkpoint outputs/seg_release/pr03_b1_cedice_median_warmcos/checkpoints/best_model.pth \
   --root ./data \
   --output-dir outputs/eval_pr03_b1_cedice_median_warmcos
+
+PYTHONPATH=src python scripts/eval_segformer.py \
+  --checkpoint outputs/seg_release/pr05_b2_cedice_inverse_basic_aug/checkpoints/best_model.pth \
+  --root ./data \
+  --output-dir outputs/seg_release/pr06_b2_inverse_sliding_ms_eval \
+  --variant segformer-b2 \
+  --patch-size 1024 \
+  --batch-size 1 \
+  --tta sliding \
+  --window-size 512 \
+  --stride 256 \
+  --scales 0.75 1.0 1.25
+
+PYTHONPATH=src python scripts/eval_segformer.py \
+  --checkpoint outputs/seg_release/pr05_b2_cedice_median_basic_aug/checkpoints/best_model.pth \
+  --root ./data \
+  --output-dir outputs/seg_release/pr06_b2_median_sliding_ms_eval \
+  --variant segformer-b2 \
+  --patch-size 1024 \
+  --batch-size 1 \
+  --tta sliding \
+  --window-size 512 \
+  --stride 256 \
+  --scales 0.75 1.0 1.25
+
+PYTHONPATH=src python scripts/eval_segformer.py \
+  --checkpoint outputs/seg_release/pr05_b2_focal_median_basic_aug/checkpoints/best_model.pth \
+  --root ./data \
+  --output-dir outputs/seg_release/pr06_b2_focal_median_sliding_ms_eval \
+  --variant segformer-b2 \
+  --patch-size 1024 \
+  --batch-size 1 \
+  --tta sliding \
+  --window-size 512 \
+  --stride 256 \
+  --scales 0.75 1.0 1.25
+
+PYTHONPATH=src python scripts/eval_segformer.py \
+  --checkpoint outputs/seg_release/pr04_b1_cedice_inverse_strong_aug/checkpoints/best_model.pth \
+  --root ./data \
+  --output-dir outputs/seg_release/pr06_b1_inverse_strong_sliding_ms_eval \
+  --variant segformer-b1 \
+  --patch-size 1024 \
+  --batch-size 1 \
+  --tta sliding \
+  --window-size 512 \
+  --stride 256 \
+  --scales 0.75 1.0 1.25
+
+PYTHONPATH=src python scripts/eval_segformer.py \
+  --checkpoint outputs/seg_release/pr05_b2_cedice_inverse_basic_aug/checkpoints/best_model.pth \
+  --root ./data \
+  --output-dir outputs/seg_release/pr06_b2_inverse_sliding_s1_ms_eval \
+  --variant segformer-b2 \
+  --patch-size 1024 \
+  --batch-size 1 \
+  --tta sliding \
+  --window-size 512 \
+  --stride 256 \
+  --scales 1.0
+
+PYTHONPATH=src python scripts/eval_segformer.py \
+  --checkpoint outputs/seg_release/pr05_b2_cedice_inverse_basic_aug/checkpoints/best_model.pth \
+  --root ./data \
+  --output-dir outputs/seg_release/pr06_b2_inverse_sliding_ms_eval \
+  --variant segformer-b2 \
+  --patch-size 1024 \
+  --batch-size 1 \
+  --tta sliding \
+  --window-size 512 \
+  --stride 128 \
+  --scales 0.75 1.0 1.25
+
+PYTHONPATH=src python scripts/eval_segformer.py \
+  --checkpoint outputs/seg_release/ablate_b2_cedice_inverse_patch1024/checkpoints/best_model.pth \
+  --root ./data \
+  --output-dir outputs/seg_release/eval_b2_inverse_basic_patch1024_singlepass \
+  --variant segformer-b2 \
+  --patch-size 1024 \
+  --batch-size 1 \
+  --tta none
+
+PYTHONPATH=src python scripts/eval_segformer.py \
+  --checkpoint outputs/seg_release/ablate_b2_cedice_inverse_patch1024/checkpoints/best_model.pth \
+  --root ./data \
+  --output-dir outputs/seg_release/pr06_b2_inverse_basic_patch1024_tta_w1024_s1_eval \
+  --variant segformer-b2 \
+  --patch-size 1024 \
+  --batch-size 1 \
+  --tta sliding \
+  --window-size 1024 \
+  --stride 512 \
+  --scales 1.0
+
+PYTHONPATH=src python scripts/eval_segformer.py \
+  --checkpoint outputs/seg_release/ablate_b2_cedice_inverse_patch1024/checkpoints/best_model.pth \
+  --root ./data \
+  --output-dir outputs/seg_release/pr06_b2_inverse_basic_patch1024_tta_w1024_ms_eval \
+  --variant segformer-b2 \
+  --patch-size 1024 \
+  --batch-size 1 \
+  --tta sliding \
+  --window-size 1024 \
+  --stride 512 \
+  --scales 0.75 1.0 1.25

@@ -140,7 +140,7 @@ Learning-Traversability-Maps-from-Overhead-Imagery-for-Drone-Routing/
 │   ├── losses.py                  # ✅ DONE — CE, CE+Dice, class weights, focal loss
 │   ├── metrics.py                 # ✅ DONE — mIoU, per-class IoU, CM saver
 │   ├── filename_utils.py          # ✅ DONE
-│   ├── inference.py               # ✅ DONE — frozen checkpoint inference + entropy
+│   ├── inference.py               # ✅ DONE — frozen checkpoint inference, entropy, sliding/TTA probability aggregation
 │   ├── costmap.py                 # 🔲 PR 09/15 — semantic→cost + uncertainty variants
 │   ├── uncertainty.py             # 🔲 PR 15 — entropy helper
 │   ├── route_metrics.py           # 🔲 PR 12 — path success, excess cost, violation rate
@@ -152,7 +152,7 @@ Learning-Traversability-Maps-from-Overhead-Imagery-for-Drone-Routing/
 │   ├── day1_day2_setup.py         # ✅ DONE — data download + histogram + sample viz
 │   ├── train_segformer.py         # ✅ DONE — training entry point, supports warmup+cosine, AMP, W&B, weighted/focal losses, aug presets, grad accumulation
 │   ├── compute_class_stats.py     # ✅ PR 03 — train pixel counts for class-balanced losses
-│   ├── eval_segformer.py          # ✅ PR 02 — frozen checkpoint eval; 🔲 PR 06 — sliding-window/TTA
+│   ├── eval_segformer.py          # ✅ DONE — frozen checkpoint eval + sliding-window/TTA
 │   ├── run_segmentation_sweep.py  # 🔲 PR 07 — release ablation sweep
 │   ├── verify_segmentation_release.py # 🔲 PR 08 — 57.3 mIoU gate
 │   ├── visualize_costmap.py       # 🔲 PR 09 — cost-map sanity figures
@@ -203,7 +203,7 @@ Learning-Traversability-Maps-from-Overhead-Imagery-for-Drone-Routing/
 - **Training loop** (`scripts/train_segformer.py`): AMP, 3 scheduler modes (`none`, `cosine-only`, `warmup+cosine`, stepped per-optimizer-step), W&B logging, class-stats-driven weighted/focal losses, `--aug-preset {basic,strong}`, `--grad-accum-steps`, best-mIoU checkpoint + normalized confusion-matrix PNG.
 - **Class stats** (`scripts/compute_class_stats.py`): scans LoveDA train masks and writes per-class pixel counts for class-balanced losses.
 - **Metrics** (`src/loveda_project/metrics.py`): `SegmentationMeter` confusion-matrix-based mIoU / per-class IoU / pixel accuracy, plus confusion-matrix plot and metrics-JSON savers.
-- **Frozen inference** (`src/loveda_project/inference.py`, `scripts/eval_segformer.py`): reusable no-grad SegFormer prediction API returning upsampled logits, probabilities, masks, and entropy, plus a checkpoint eval script that emits metrics JSON and confusion matrices.
+- **Frozen inference** (`src/loveda_project/inference.py`, `scripts/eval_segformer.py`): reusable no-grad SegFormer prediction API returning upsampled logits, probabilities, masks, and entropy, plus Gaussian-weighted sliding-window / multi-scale probability aggregation for checkpoint eval.
 - **Test bootstrap** (`tests/`): pytest import smoke test plus synthetic regression tests for `EnsureTensorTypes`, Dice ignore handling, `SegmentationMeter`, and SegFormer B0 model construction. Verified with `conda run -n loveda env PYTHONPATH=src python -m pytest tests`.
 
 ### 📊 Best recorded performance (urban + rural combined)
@@ -418,7 +418,7 @@ Failure panels should show the RGB image, GT mask, predicted mask, predicted cos
 
 ## 8. Revised PR Roadmap / 重新制定 PR 路線圖
 
-**Current codebase state**: the repository already has a working LoveDA data pipeline, paired transforms with basic/strong augmentation presets, SegFormer B0/B1/B2 construction, CE/CE+Dice/focal losses, class-balanced loss weighting, segmentation metrics, `scripts/train_segformer.py` with gradient accumulation, the PR 01 pytest bootstrap, the PR 02 frozen inference/eval wrapper, and the PR 03 class-stats helper. It does **not** yet have sliding/TTA evaluation, semantic-to-cost conversion, planners, route metrics, routing scripts, segmentation sweep tooling, or release-gate tooling.
+**Current codebase state**: the repository already has a working LoveDA data pipeline, paired transforms with basic/strong augmentation presets, SegFormer B0/B1/B2 construction, CE/CE+Dice/focal losses, class-balanced loss weighting, segmentation metrics, `scripts/train_segformer.py` with gradient accumulation, the PR 01 pytest bootstrap, the PR 02 frozen inference/eval wrapper, the PR 03 class-stats helper, and PR 06 sliding-window / multi-scale TTA evaluation. It does **not** yet have semantic-to-cost conversion, planners, route metrics, routing scripts, segmentation sweep tooling, or release-gate tooling.
 
 **Main project goal**: produce an auditable perception-to-routing study:
 
@@ -1008,7 +1008,7 @@ PYTHONPATH=src python scripts/verify_final_artifacts.py \
 | 03 | ✅ Done | Weighted/focal losses | Targets the 51.2 -> 57.3 mIoU gap | `test_losses_weighted.py` |
 | 04 | ✅ Done | Strong augmentation | Targets domain shift and robust road/barren prediction | `test_transforms_aug.py` |
 | 05 | ✅ Done | B2 + grad accumulation | Adds model capacity for the release gate | `test_modeling.py`, `test_gradient_accumulation.py` |
-| 06 | 🔲 Not started | Sliding/TTA eval | Improves official eval without retraining | `test_tta.py` |
+| 06 | ✅ Done | Sliding/TTA eval | Improves official eval without retraining | `test_tta.py` |
 | 07 | 🔲 Not started | Segmentation sweep | Makes mIoU ablations reproducible | `test_segmentation_sweep.py` |
 | 08 | 🔲 Not started | Release gate | Prevents unsupported 57.3 mIoU claims | `test_segmentation_release_gate.py` |
 | 09 | 🔲 Not started | Semantic-to-cost | Bridges perception to planning representation | `test_costmap.py` |

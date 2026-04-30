@@ -17,12 +17,16 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--checkpoint", type=str, required=True)
     parser.add_argument("--root", type=str, default="./data")
     parser.add_argument("--output-dir", type=str, default="./outputs/eval_smoke")
-    parser.add_argument("--variant", type=str, default=None, choices=["segformer-b0", "segformer-b1"])
+    parser.add_argument("--variant", type=str, default=None, choices=["segformer-b0", "segformer-b1", "segformer-b2"])
     parser.add_argument("--batch-size", type=int, default=4)
     parser.add_argument("--num-workers", type=int, default=4)
     parser.add_argument("--patch-size", type=int, default=512)
     parser.add_argument("--max-samples", type=int, default=None)
     parser.add_argument("--device", type=str, default="cuda" if torch.cuda.is_available() else "cpu")
+    parser.add_argument("--tta", type=str, default="none", choices=["none", "sliding"])
+    parser.add_argument("--window-size", type=int, default=512)
+    parser.add_argument("--stride", type=int, default=256)
+    parser.add_argument("--scales", nargs="+", type=float, default=[1.0])
     parser.add_argument(
         "--val-scenes",
         nargs="+",
@@ -74,8 +78,16 @@ def main() -> None:
             images = images[:remaining]
             masks = masks[:remaining]
 
-        outputs = predictor.predict(pixel_values=images, target_size=masks.shape[-2:])
-        meter.update(outputs.logits, masks)
+        if args.tta == "sliding":
+            outputs = predictor.predict_multiscale_sliding(
+                pixel_values=images,
+                window_size=args.window_size,
+                stride=args.stride,
+                scales=args.scales,
+            )
+        else:
+            outputs = predictor.predict(pixel_values=images, target_size=masks.shape[-2:])
+        meter.update(outputs.probabilities, masks)
         entropy_sum += float(outputs.entropy.sum().item())
         entropy_count += int(outputs.entropy.numel())
         samples_seen += int(images.shape[0])
@@ -106,6 +118,10 @@ def main() -> None:
         "pixel_accuracy": summary.pixel_accuracy,
         "per_class_iou": summary.per_class_iou,
         "mean_entropy": entropy_sum / max(entropy_count, 1),
+        "tta": args.tta,
+        "window_size": args.window_size,
+        "stride": args.stride,
+        "scales": args.scales,
     }
     with (output_dir / "eval_summary.json").open("w", encoding="utf-8") as f:
         json.dump(report, f, indent=2)

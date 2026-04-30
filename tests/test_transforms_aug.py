@@ -12,6 +12,7 @@ from loveda_project.transforms import (
     ComposeDict,
     EnsureTensorTypes,
     NormalizeImage,
+    PadToSizePair,
     RandomColorJitterImage,
     RandomCropPair,
     RandomGaussianBlurImage,
@@ -83,6 +84,30 @@ def test_random_scale_pair_uses_bilinear_for_image_and_nearest_for_mask() -> Non
     assert torch.allclose(transformed["image"], expected_image)
     assert torch.equal(transformed["mask"], expected_mask)
     assert set(transformed["mask"].unique().tolist()).issubset(set(range(8)))
+
+
+def test_pad_to_size_pair_pads_image_and_mask_symmetrically() -> None:
+    image = torch.ones(3, 2, 3, dtype=torch.float32)
+    mask = torch.full((2, 3), 5, dtype=torch.long)
+    transformed = PadToSizePair(size=5, image_fill=0.25, mask_fill=99)({"image": image, "mask": mask})
+
+    assert transformed["image"].shape == (3, 5, 5)
+    assert transformed["mask"].shape == (5, 5)
+    assert torch.allclose(transformed["image"][:, 1:3, 1:4], image)
+    assert torch.equal(transformed["mask"][1:3, 1:4], mask)
+    assert torch.all(transformed["image"][:, 0, :] == 0.25)
+    assert torch.all(transformed["mask"][0, :] == 99)
+
+
+def test_strong_aug_pads_scaled_down_samples_to_patch_size(monkeypatch) -> None:
+    sample = _sample(size=8)
+    monkeypatch.setattr(random, "uniform", lambda lower, upper: lower)
+
+    random.seed(17)
+    transformed = build_train_transforms(8, aug_preset="strong")(sample)
+
+    assert transformed["image"].shape == (3, 8, 8)
+    assert transformed["mask"].shape == (8, 8)
 
 
 def test_aug_preset_basic_matches_original_train_pipeline() -> None:

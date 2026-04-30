@@ -86,6 +86,35 @@ class RandomCropPair:
 
 
 @dataclass
+class PadToSizePair:
+    size: int
+    image_fill: float = 0.0
+    mask_fill: int = 0
+
+    def __call__(self, sample: Sample) -> Sample:
+        if self.size <= 0:
+            raise ValueError("size must be positive")
+
+        image = sample["image"]
+        mask = sample["mask"]
+        _, h, w = image.shape
+        pad_h = max(self.size - h, 0)
+        pad_w = max(self.size - w, 0)
+        if pad_h == 0 and pad_w == 0:
+            return sample
+
+        left = pad_w // 2
+        right = pad_w - left
+        top = pad_h // 2
+        bottom = pad_h - top
+        padding = [left, top, right, bottom]
+
+        sample["image"] = TF.pad(image, padding=padding, fill=self.image_fill)
+        sample["mask"] = TF.pad(mask.unsqueeze(0), padding=padding, fill=self.mask_fill).squeeze(0)
+        return sample
+
+
+@dataclass
 class RandomScalePair:
     scale_range: tuple[float, float] = (0.75, 1.5)
 
@@ -240,6 +269,7 @@ def build_train_transforms(patch_size: int, aug_preset: str = "basic") -> Compos
             [
                 EnsureTensorTypes(),
                 RandomScalePair(scale_range=(0.75, 1.5)),
+                PadToSizePair(size=patch_size),
                 RandomCropPair(size=patch_size),
                 RandomHorizontalFlipPair(p=0.5),
                 RandomVerticalFlipPair(p=0.5),
