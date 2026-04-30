@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import time
 from pathlib import Path
 from typing import Dict
@@ -28,10 +29,11 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Train SegFormer baseline on LoveDA")
     parser.add_argument("--root", type=str, default="./data")
     parser.add_argument("--output-dir", type=str, default="./outputs/day3_day5")
-    parser.add_argument("--variant", type=str, default="segformer-b0", choices=["segformer-b0", "segformer-b1"])
+    parser.add_argument("--variant", type=str, default="segformer-b0", choices=["segformer-b0", "segformer-b1", "segformer-b2"])
     parser.add_argument("--pretrained", action="store_true", help="Load HuggingFace pretrained weights if available")
     parser.add_argument("--epochs", type=int, default=20)
     parser.add_argument("--batch-size", type=int, default=4)
+    parser.add_argument("--grad-accum-steps", type=int, default=1)
     parser.add_argument("--num-workers", type=int, default=4)
     parser.add_argument("--patch-size", type=int, default=512)
     parser.add_argument("--aug-preset", type=str, default="basic", choices=["basic", "strong"])
@@ -219,16 +221,20 @@ def train_one_epoch(
     device: torch.device,
     scaler: torch.amp.GradScaler | None,
     amp_enabled: bool,
+    grad_accum_steps: int = 1,
 ) -> float:
+    if grad_accum_steps <= 0:
+        raise ValueError("grad_accum_steps must be >= 1")
+
     model.train()
     total_loss = 0.0
     total_samples = 0
+    num_batches = len(loader)
+    optimizer.zero_grad(set_to_none=True)
 
-    for batch in tqdm(loader, desc="train", leave=False):
+    for batch_idx, batch in enumerate(tqdm(loader, desc="train", leave=False), start=1):
         images = batch["image"].to(device, non_blocking=True)
         masks = batch["mask"].to(device, non_blocking=True)
-
-        optimizer.zero_grad(set_to_none=True)
 
         if amp_enabled and scaler is not None:
             with torch.autocast(device_type="cuda"):
@@ -237,21 +243,27 @@ def train_one_epoch(
                 if logits.shape[-2:] != masks.shape[-2:]:
                     logits = F.interpolate(logits, size=masks.shape[-2:], mode="bilinear", align_corners=False)
                 loss = criterion(logits, masks)
-            scaler.scale(loss).backward()
-            scaler.step(optimizer)
-            scaler.update()
-            if scheduler is not None:
-                scheduler.step()
+            scaler.scale(loss / grad_accum_steps).backward()
+            should_step = batch_idx % grad_accum_steps == 0 or batch_idx == num_batches
+            if should_step:
+                scaler.step(optimizer)
+                scaler.update()
+                if scheduler is not None:
+                    scheduler.step()
+                optimizer.zero_grad(set_to_none=True)
         else:
             outputs = model(pixel_values=images)
             logits = outputs.logits
             if logits.shape[-2:] != masks.shape[-2:]:
                 logits = F.interpolate(logits, size=masks.shape[-2:], mode="bilinear", align_corners=False)
             loss = criterion(logits, masks)
-            loss.backward()
-            optimizer.step()
-            if scheduler is not None:
-                scheduler.step()
+            (loss / grad_accum_steps).backward()
+            should_step = batch_idx % grad_accum_steps == 0 or batch_idx == num_batches
+            if should_step:
+                optimizer.step()
+                if scheduler is not None:
+                    scheduler.step()
+                optimizer.zero_grad(set_to_none=True)
 
         batch_size = images.shape[0]
         total_loss += float(loss.item()) * batch_size
@@ -262,6 +274,8 @@ def train_one_epoch(
 
 def main() -> None:
     args = parse_args()
+    if args.grad_accum_steps <= 0:
+        raise ValueError("--grad-accum-steps must be >= 1")
     if args.save_every < 0:
         raise ValueError("--save-every must be >= 0")
     set_seed(args.seed)
@@ -336,7 +350,7 @@ def main() -> None:
 
     optimizer = AdamW(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
     scaler = torch.amp.GradScaler("cuda", enabled=args.amp and device.type == "cuda")
-    steps_per_epoch = len(loaders["train"])
+    steps_per_epoch = math.ceil(len(loaders["train"]) / args.grad_accum_steps)
     scheduler = build_scheduler(
         optimizer=optimizer,
         scheduler_type=args.scheduler_type,
@@ -390,6 +404,7 @@ def main() -> None:
             device=device,
             scaler=scaler if args.amp and device.type == "cuda" else None,
             amp_enabled=args.amp and device.type == "cuda",
+            grad_accum_steps=args.grad_accum_steps,
         )
         val_metrics = evaluate(
             model=model,

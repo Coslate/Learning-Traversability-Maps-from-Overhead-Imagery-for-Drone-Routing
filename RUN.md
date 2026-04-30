@@ -204,6 +204,126 @@ PYTHONPATH=src python scripts/train_segformer.py \
   --wandb-project loveda-segformer \
   --wandb-run-name b1_pt_cedice_inverse_strongaug_warmcos45_patch512
 
+PYTHONPATH=src python scripts/train_segformer.py \
+  --root ./data \
+  --output-dir ./outputs/seg_release/pr05_b2_cedice_median_basic_aug \
+  --variant segformer-b2 \
+  --pretrained \
+  --epochs 45 \
+  --batch-size 2 \
+  --grad-accum-steps 2 \
+  --lr 6e-5 \
+  --scheduler-type warmup+cosine \
+  --warmup-epochs 5 \
+  --min-lr 1e-6 \
+  --weight-decay 1e-2 \
+  --loss-name ce_dice \
+  --dice-weight 0.25 \
+  --class-weight-mode median \
+  --class-stats outputs/class_stats/urban_rural.json \
+  --aug-preset basic \
+  --amp \
+  --save-every 0 \
+  --use-wandb \
+  --wandb-project loveda-segformer \
+  --wandb-run-name b2_pt_cedice_median_basic_warmcos45_patch512
+
+PYTHONPATH=src python scripts/train_segformer.py \
+  --root ./data \
+  --output-dir ./outputs/seg_release/pr05_b2_cedice_inverse_basic_aug \
+  --variant segformer-b2 \
+  --pretrained \
+  --epochs 45 \
+  --batch-size 2 \
+  --grad-accum-steps 2 \
+  --lr 6e-5 \
+  --scheduler-type warmup+cosine \
+  --warmup-epochs 5 \
+  --min-lr 1e-6 \
+  --weight-decay 1e-2 \
+  --loss-name ce_dice \
+  --dice-weight 0.25 \
+  --class-weight-mode inverse \
+  --class-stats outputs/class_stats/urban_rural.json \
+  --aug-preset basic \
+  --amp \
+  --save-every 0 \
+  --use-wandb \
+  --wandb-project loveda-segformer \
+  --wandb-run-name b2_pt_cedice_inverse_basic_warmcos45_patch512
+
+PYTHONPATH=src python scripts/train_segformer.py \
+  --root ./data \
+  --output-dir ./outputs/seg_release/pr05_b2_focal_median_basic_aug \
+  --variant segformer-b2 \
+  --pretrained \
+  --epochs 45 \
+  --batch-size 2 \
+  --grad-accum-steps 2 \
+  --lr 6e-5 \
+  --scheduler-type warmup+cosine \
+  --warmup-epochs 5 \
+  --min-lr 1e-6 \
+  --weight-decay 1e-2 \
+  --loss-name focal \
+  --dice-weight 0.25 \
+  --class-weight-mode median \
+  --class-stats outputs/class_stats/urban_rural.json \
+  --aug-preset basic \
+  --amp \
+  --save-every 0 \
+  --use-wandb \
+  --wandb-project loveda-segformer \
+  --wandb-run-name b2_pt_focal_median_basic_warmcos45_patch512
+
+PYTHONPATH=src python scripts/train_segformer.py \
+  --root ./data \
+  --output-dir ./outputs/seg_release/pr05_b2_focal_inverse_basic_aug \
+  --variant segformer-b2 \
+  --pretrained \
+  --epochs 45 \
+  --batch-size 2 \
+  --grad-accum-steps 2 \
+  --lr 6e-5 \
+  --scheduler-type warmup+cosine \
+  --warmup-epochs 5 \
+  --min-lr 1e-6 \
+  --weight-decay 1e-2 \
+  --loss-name focal \
+  --dice-weight 0.25 \
+  --class-weight-mode inverse \
+  --class-stats outputs/class_stats/urban_rural.json \
+  --aug-preset basic \
+  --amp \
+  --save-every 0 \
+  --use-wandb \
+  --wandb-project loveda-segformer \
+  --wandb-run-name b2_pt_focal_inverse_basic_warmcos45_patch512
+
+PYTHONPATH=src python scripts/train_segformer.py \
+  --root ./data \
+  --output-dir ./outputs/seg_release/pr05_b2_cedice_median_strong_aug \
+  --variant segformer-b2 \
+  --pretrained \
+  --epochs 45 \
+  --batch-size 2 \
+  --grad-accum-steps 2 \
+  --lr 6e-5 \
+  --scheduler-type warmup+cosine \
+  --warmup-epochs 5 \
+  --min-lr 1e-6 \
+  --weight-decay 1e-2 \
+  --loss-name ce_dice \
+  --dice-weight 0.25 \
+  --class-weight-mode median \
+  --class-stats outputs/class_stats/urban_rural.json \
+  --aug-preset strong \
+  --amp \
+  --save-every 0 \
+  --use-wandb \
+  --wandb-project loveda-segformer \
+  --wandb-run-name b2_pt_cedice_median_strong_warmcos45_patch512
+
 # Calculate class stats
 PYTHONPATH=src python scripts/compute_class_stats.py \
   --root ./data \
