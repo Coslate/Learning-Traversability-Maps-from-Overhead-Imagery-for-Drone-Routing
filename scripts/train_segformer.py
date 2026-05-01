@@ -5,7 +5,7 @@ import json
 import math
 import time
 from pathlib import Path
-from typing import Dict
+from typing import Dict, Sequence
 
 import torch
 import torch.nn.functional as F
@@ -25,7 +25,28 @@ except ImportError:
     wandb = None
 
 
-def parse_args() -> argparse.Namespace:
+CLASS_NAME_TO_ID = {class_name: class_id for class_id, class_name in CLASS_NAMES.items()}
+
+
+def resolve_crop_target_classes(class_names: Sequence[str]) -> tuple[int, ...]:
+    class_ids: list[int] = []
+    for class_name in class_names:
+        key = class_name.strip().lower()
+        if key.isdigit():
+            class_id = int(key)
+            if class_id not in CLASS_NAMES:
+                valid_names = ", ".join(CLASS_NAME_TO_ID)
+                raise ValueError(f"Unknown crop target class '{class_name}'. Valid names: {valid_names}")
+        elif key in CLASS_NAME_TO_ID:
+            class_id = CLASS_NAME_TO_ID[key]
+        else:
+            valid_names = ", ".join(CLASS_NAME_TO_ID)
+            raise ValueError(f"Unknown crop target class '{class_name}'. Valid names: {valid_names}")
+        class_ids.append(class_id)
+    return tuple(class_ids)
+
+
+def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Train SegFormer baseline on LoveDA")
     parser.add_argument("--root", type=str, default="./data")
     parser.add_argument("--output-dir", type=str, default="./outputs/day3_day5")
@@ -37,6 +58,16 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--num-workers", type=int, default=4)
     parser.add_argument("--patch-size", type=int, default=512)
     parser.add_argument("--aug-preset", type=str, default="basic", choices=["basic", "strong"])
+    parser.add_argument("--class-aware-crop", action="store_true", help="Prefer crops containing target classes")
+    parser.add_argument(
+        "--crop-target-classes",
+        nargs="+",
+        default=["road", "barren", "forest"],
+        help="LoveDA class names or ids to target when --class-aware-crop is enabled",
+    )
+    parser.add_argument("--crop-min-pixels", type=int, default=1024)
+    parser.add_argument("--crop-tries", type=int, default=20)
+    parser.add_argument("--class-aware-crop-prob", type=float, default=0.5)
     parser.add_argument("--lr", type=float, default=6e-5)
     parser.add_argument(
         "--scheduler-type",
@@ -93,7 +124,23 @@ def parse_args() -> argparse.Namespace:
         help="W&B logging mode",
     )
 
-    return parser.parse_args()
+    args = parser.parse_args(argv)
+    if args.crop_min_pixels <= 0:
+        parser.error("--crop-min-pixels must be > 0")
+    if args.crop_tries <= 0:
+        parser.error("--crop-tries must be > 0")
+    if not 0.0 <= args.class_aware_crop_prob <= 1.0:
+        parser.error("--class-aware-crop-prob must be between 0 and 1")
+
+    try:
+        args.crop_target_class_ids = resolve_crop_target_classes(args.crop_target_classes)
+    except ValueError as exc:
+        parser.error(str(exc))
+
+    if args.class_aware_crop and not any(class_id != IGNORE_INDEX for class_id in args.crop_target_class_ids):
+        parser.error("--crop-target-classes must include at least one non-ignore class")
+
+    return args
 
 
 @torch.no_grad()
@@ -295,6 +342,11 @@ def main() -> None:
         download=False,
         seed=args.seed,
         aug_preset=args.aug_preset,
+        class_aware_crop=args.class_aware_crop,
+        crop_target_classes=tuple(args.crop_target_class_ids),
+        crop_min_pixels=args.crop_min_pixels,
+        crop_tries=args.crop_tries,
+        class_aware_crop_prob=args.class_aware_crop_prob,
     )
     _, loaders = build_dataloaders(config)
 

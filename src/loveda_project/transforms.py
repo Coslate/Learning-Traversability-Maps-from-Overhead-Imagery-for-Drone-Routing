@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import random
 from dataclasses import dataclass
-from typing import Callable, Dict, Iterable, List, MutableMapping, Union
+from typing import Callable, Dict, Iterable, List, MutableMapping, Sequence, Union
 
 import torch
 from torchvision.transforms import InterpolationMode
@@ -83,6 +83,54 @@ class RandomCropPair:
         sample["image"] = TF.crop(image, top, left, crop_h, crop_w)
         sample["mask"] = TF.crop(mask.unsqueeze(0), top, left, crop_h, crop_w).squeeze(0)
         return sample
+
+
+@dataclass
+class ClassAwareRandomCropPair:
+    size: int
+    target_classes: Sequence[int]
+    min_pixels: int = 1024
+    num_tries: int = 20
+    p: float = 0.5
+    ignore_index: int = 0
+
+    def __call__(self, sample: Sample) -> Sample:
+        if self.size <= 0:
+            raise ValueError("size must be positive")
+        if self.min_pixels <= 0:
+            raise ValueError("min_pixels must be positive")
+        if self.num_tries <= 0:
+            raise ValueError("num_tries must be positive")
+        if not 0.0 <= self.p <= 1.0:
+            raise ValueError("p must be between 0 and 1")
+
+        sample = PadToSizePair(size=self.size, mask_fill=self.ignore_index)(sample)
+        if random.random() >= self.p:
+            return RandomCropPair(size=self.size)(sample)
+
+        image = sample["image"]
+        mask = sample["mask"]
+        _, h, w = image.shape
+        crop_h = min(self.size, h)
+        crop_w = min(self.size, w)
+        target_classes = tuple(int(class_id) for class_id in self.target_classes if int(class_id) != self.ignore_index)
+        if not target_classes:
+            return RandomCropPair(size=self.size)(sample)
+
+        target_tensor = torch.tensor(target_classes, dtype=mask.dtype, device=mask.device)
+        max_top = h - crop_h
+        max_left = w - crop_w
+        for _ in range(self.num_tries):
+            top = random.randint(0, max_top) if max_top > 0 else 0
+            left = random.randint(0, max_left) if max_left > 0 else 0
+            crop_mask = mask[top : top + crop_h, left : left + crop_w]
+            target_pixels = torch.isin(crop_mask, target_tensor).sum().item()
+            if target_pixels >= self.min_pixels:
+                sample["image"] = TF.crop(image, top, left, crop_h, crop_w)
+                sample["mask"] = TF.crop(mask.unsqueeze(0), top, left, crop_h, crop_w).squeeze(0)
+                return sample
+
+        return RandomCropPair(size=self.size)(sample)
 
 
 @dataclass
@@ -252,12 +300,52 @@ DEFAULT_MEAN = [0.485, 0.456, 0.406]
 DEFAULT_STD = [0.229, 0.224, 0.225]
 
 
-def build_train_transforms(patch_size: int, aug_preset: str = "basic") -> ComposeDict:
+def _build_crop_transform(
+    patch_size: int,
+    class_aware_crop: bool,
+    crop_target_classes: Sequence[int] | None,
+    crop_min_pixels: int,
+    crop_tries: int,
+    class_aware_crop_prob: float,
+    ignore_index: int,
+) -> Callable[[Sample], Sample]:
+    if class_aware_crop:
+        return ClassAwareRandomCropPair(
+            size=patch_size,
+            target_classes=tuple(crop_target_classes or ()),
+            min_pixels=crop_min_pixels,
+            num_tries=crop_tries,
+            p=class_aware_crop_prob,
+            ignore_index=ignore_index,
+        )
+    return RandomCropPair(size=patch_size)
+
+
+def build_train_transforms(
+    patch_size: int,
+    aug_preset: str = "basic",
+    class_aware_crop: bool = False,
+    crop_target_classes: Sequence[int] | None = None,
+    crop_min_pixels: int = 1024,
+    crop_tries: int = 20,
+    class_aware_crop_prob: float = 0.5,
+    ignore_index: int = 0,
+) -> ComposeDict:
+    crop_transform = _build_crop_transform(
+        patch_size=patch_size,
+        class_aware_crop=class_aware_crop,
+        crop_target_classes=crop_target_classes,
+        crop_min_pixels=crop_min_pixels,
+        crop_tries=crop_tries,
+        class_aware_crop_prob=class_aware_crop_prob,
+        ignore_index=ignore_index,
+    )
+
     if aug_preset == "basic":
         return ComposeDict(
             [
                 EnsureTensorTypes(),
-                RandomCropPair(size=patch_size),
+                crop_transform,
                 RandomHorizontalFlipPair(p=0.5),
                 RandomVerticalFlipPair(p=0.5),
                 NormalizeImage(mean=DEFAULT_MEAN, std=DEFAULT_STD),
@@ -270,7 +358,7 @@ def build_train_transforms(patch_size: int, aug_preset: str = "basic") -> Compos
                 EnsureTensorTypes(),
                 RandomScalePair(scale_range=(0.75, 1.5)),
                 PadToSizePair(size=patch_size),
-                RandomCropPair(size=patch_size),
+                crop_transform,
                 RandomHorizontalFlipPair(p=0.5),
                 RandomVerticalFlipPair(p=0.5),
                 RandomColorJitterImage(brightness=0.3, contrast=0.3, saturation=0.3, hue=0.05, p=0.8),

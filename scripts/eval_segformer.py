@@ -8,13 +8,19 @@ import torch
 from tqdm import tqdm
 
 from loveda_project.data import CLASS_NAMES, IGNORE_INDEX, LoveDAConfig, build_dataloaders
-from loveda_project.inference import SegformerInferenceWrapper, load_segformer_from_checkpoint
+from loveda_project.inference import (
+    SegformerEnsembleInferenceWrapper,
+    SegformerInferenceWrapper,
+    load_segformer_from_checkpoint,
+)
 from loveda_project.metrics import MetricSummary, SegmentationMeter, save_confusion_matrix_plot, save_metrics_json
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Evaluate a frozen SegFormer checkpoint on LoveDA")
-    parser.add_argument("--checkpoint", type=str, required=True)
+    checkpoint_group = parser.add_mutually_exclusive_group(required=True)
+    checkpoint_group.add_argument("--checkpoint", type=str)
+    checkpoint_group.add_argument("--checkpoints", nargs="+", type=str)
     parser.add_argument("--root", type=str, default="./data")
     parser.add_argument("--output-dir", type=str, default="./outputs/eval_smoke")
     parser.add_argument("--variant", type=str, default=None, choices=["segformer-b0", "segformer-b1", "segformer-b2"])
@@ -33,7 +39,14 @@ def parse_args() -> argparse.Namespace:
         default=["urban", "rural"],
         choices=["urban", "rural"],
     )
-    return parser.parse_args()
+    args = parser.parse_args()
+    if args.checkpoints is not None and args.variant is not None:
+        parser.error("--variant can only be used with --checkpoint; ensemble checkpoints use their saved variants")
+    return args
+
+
+def checkpoint_paths_from_args(args: argparse.Namespace) -> list[str]:
+    return args.checkpoints if args.checkpoints is not None else [args.checkpoint]
 
 
 def main() -> None:
@@ -54,14 +67,23 @@ def main() -> None:
     _, loaders = build_dataloaders(config)
     loader = loaders["val"]
 
-    model = load_segformer_from_checkpoint(
-        checkpoint_path=args.checkpoint,
-        device=device,
-        num_labels=len(CLASS_NAMES),
-        ignore_index=IGNORE_INDEX,
-        variant=args.variant,
+    checkpoint_paths = checkpoint_paths_from_args(args)
+    predictors = []
+    for checkpoint_path in checkpoint_paths:
+        model = load_segformer_from_checkpoint(
+            checkpoint_path=checkpoint_path,
+            device=device,
+            num_labels=len(CLASS_NAMES),
+            ignore_index=IGNORE_INDEX,
+            variant=args.variant if len(checkpoint_paths) == 1 else None,
+        )
+        predictors.append(SegformerInferenceWrapper(model))
+
+    predictor = (
+        predictors[0]
+        if len(predictors) == 1
+        else SegformerEnsembleInferenceWrapper(predictors)
     )
-    predictor = SegformerInferenceWrapper(model)
     meter = SegmentationMeter(num_classes=len(CLASS_NAMES), ignore_index=IGNORE_INDEX, class_names=CLASS_NAMES)
 
     entropy_sum = 0.0
@@ -112,7 +134,9 @@ def main() -> None:
     )
 
     report = {
-        "checkpoint": str(Path(args.checkpoint)),
+        "checkpoint": str(Path(checkpoint_paths[0])) if len(checkpoint_paths) == 1 else None,
+        "checkpoints": [str(Path(path)) for path in checkpoint_paths],
+        "ensemble_size": len(checkpoint_paths),
         "num_samples": samples_seen,
         "mean_iou": summary.mean_iou,
         "pixel_accuracy": summary.pixel_accuracy,

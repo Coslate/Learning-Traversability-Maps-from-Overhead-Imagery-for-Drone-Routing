@@ -462,6 +462,30 @@ PYTHONPATH=src python scripts/eval_segformer.py \
 PYTHONPATH=src python scripts/eval_segformer.py \
   --checkpoint outputs/seg_release/pr05_b2_cedice_inverse_basic_aug/checkpoints/best_model.pth \
   --root ./data \
+  --output-dir outputs/seg_release/pr06_b2_inverse_sliding_w768_s1_eval \
+  --variant segformer-b2 \
+  --patch-size 1024 \
+  --batch-size 1 \
+  --tta sliding \
+  --window-size 768 \
+  --stride 256 \
+  --scales 1.0  
+
+PYTHONPATH=src python scripts/eval_segformer.py \
+  --checkpoint outputs/seg_release/pr05_b2_cedice_inverse_basic_aug/checkpoints/best_model.pth \
+  --root ./data \
+  --output-dir outputs/seg_release/pr06_b2_inverse_sliding_w512_s1_stride128_eval \
+  --variant segformer-b2 \
+  --patch-size 1024 \
+  --batch-size 1 \
+  --tta sliding \
+  --window-size 512 \
+  --stride 128 \
+  --scales 1.0
+
+PYTHONPATH=src python scripts/eval_segformer.py \
+  --checkpoint outputs/seg_release/pr05_b2_cedice_inverse_basic_aug/checkpoints/best_model.pth \
+  --root ./data \
   --output-dir outputs/seg_release/pr06_b2_inverse_sliding_ms_eval \
   --variant segformer-b2 \
   --patch-size 1024 \
@@ -470,6 +494,18 @@ PYTHONPATH=src python scripts/eval_segformer.py \
   --window-size 512 \
   --stride 128 \
   --scales 0.75 1.0 1.25
+
+PYTHONPATH=src python scripts/eval_segformer.py \
+  --checkpoint outputs/seg_release/pr05_b2_cedice_inverse_basic_aug/checkpoints/best_model.pth \
+  --root ./data \
+  --output-dir outputs/seg_release/pr06_b2_inverse_sliding_ms_mild_eval \
+  --variant segformer-b2 \
+  --patch-size 1024 \
+  --batch-size 1 \
+  --tta sliding \
+  --window-size 512 \
+  --stride 256 \
+  --scales 0.875 1.0 1.125
 
 PYTHONPATH=src python scripts/eval_segformer.py \
   --checkpoint outputs/seg_release/ablate_b2_cedice_inverse_patch1024/checkpoints/best_model.pth \
@@ -502,4 +538,46 @@ PYTHONPATH=src python scripts/eval_segformer.py \
   --tta sliding \
   --window-size 1024 \
   --stride 512 \
+  --scales 0.75 1.0 1.25
+
+PYTHONPATH=src python scripts/eval_segformer.py \
+  --checkpoints \
+    outputs/seg_release/pr05_b2_cedice_inverse_basic_aug/checkpoints/best_model.pth \
+    outputs/seg_release/pr05_b2_focal_median_basic_aug/checkpoints/best_model.pth \
+    outputs/seg_release/pr04_b1_cedice_inverse_strong_aug/checkpoints/best_model.pth \
+  --root ./data \
+  --output-dir outputs/seg_release/pr06b_ensemble_b2inv_b2focal_b1strong_sliding_s1_eval \
+  --patch-size 1024 \
+  --batch-size 1 \
+  --tta sliding \
+  --window-size 512 \
+  --stride 256 \
+  --scales 1.0
+
+PYTHONPATH=src python scripts/eval_segformer.py \
+  --checkpoints \
+    outputs/seg_release/pr05_b2_cedice_inverse_basic_aug/checkpoints/best_model.pth \
+    outputs/seg_release/pr05_b2_focal_median_basic_aug/checkpoints/best_model.pth \
+    outputs/seg_release/pr04_b1_cedice_inverse_strong_aug/checkpoints/best_model.pth \
+  --root ./data \
+  --output-dir outputs/seg_release/pr06b_ensemble_b2inv_b2focal_b1strong_sliding_s1_stride128_eval \
+  --patch-size 1024 \
+  --batch-size 1 \
+  --tta sliding \
+  --window-size 512 \
+  --stride 128 \
+  --scales 1.0
+
+PYTHONPATH=src python scripts/eval_segformer.py \
+  --checkpoints \
+    outputs/seg_release/pr05_b2_cedice_inverse_basic_aug/checkpoints/best_model.pth \
+    outputs/seg_release/pr05_b2_focal_median_basic_aug/checkpoints/best_model.pth \
+    outputs/seg_release/pr04_b1_cedice_inverse_strong_aug/checkpoints/best_model.pth \
+  --root ./data \
+  --output-dir outputs/seg_release/pr06b_ensemble_b2inv_b2focal_b1strong_sliding_ms_eval \
+  --patch-size 1024 \
+  --batch-size 1 \
+  --tta sliding \
+  --window-size 512 \
+  --stride 256 \
   --scales 0.75 1.0 1.25

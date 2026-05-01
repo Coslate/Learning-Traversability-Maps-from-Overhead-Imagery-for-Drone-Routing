@@ -50,6 +50,11 @@ class LoveDAConfig:
     download: bool = False
     seed: int = 0
     aug_preset: str = "basic"
+    class_aware_crop: bool = False
+    crop_target_classes: Sequence[int] = ()
+    crop_min_pixels: int = 1024
+    crop_tries: int = 20
+    class_aware_crop_prob: float = 0.5
 
 
 class WrappedLoveDAScene(Dataset):
@@ -67,6 +72,11 @@ class WrappedLoveDAScene(Dataset):
         patch_size: int,
         download: bool = False,
         aug_preset: str = "basic",
+        class_aware_crop: bool = False,
+        crop_target_classes: Sequence[int] = (),
+        crop_min_pixels: int = 1024,
+        crop_tries: int = 20,
+        class_aware_crop_prob: float = 0.5,
     ) -> None:
         if split not in {"train", "val", "test"}:
             raise ValueError(f"Unsupported split: {split}")
@@ -74,7 +84,16 @@ class WrappedLoveDAScene(Dataset):
             raise ValueError(f"Unsupported scene: {scene}")
 
         base_transform = (
-            build_train_transforms(patch_size, aug_preset=aug_preset)
+            build_train_transforms(
+                patch_size,
+                aug_preset=aug_preset,
+                class_aware_crop=class_aware_crop,
+                crop_target_classes=crop_target_classes,
+                crop_min_pixels=crop_min_pixels,
+                crop_tries=crop_tries,
+                class_aware_crop_prob=class_aware_crop_prob,
+                ignore_index=IGNORE_INDEX,
+            )
             if split == "train"
             else build_val_transforms(patch_size)
         )
@@ -113,6 +132,11 @@ def build_scene_datasets(config: LoveDAConfig) -> Dict[str, Dict[str, WrappedLov
             patch_size=config.patch_size,
             download=config.download,
             aug_preset=config.aug_preset,
+            class_aware_crop=config.class_aware_crop,
+            crop_target_classes=config.crop_target_classes,
+            crop_min_pixels=config.crop_min_pixels,
+            crop_tries=config.crop_tries,
+            class_aware_crop_prob=config.class_aware_crop_prob,
         )
 
     for scene in config.val_scenes:

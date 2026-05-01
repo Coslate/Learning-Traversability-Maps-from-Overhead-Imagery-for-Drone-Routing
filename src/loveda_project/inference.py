@@ -77,6 +77,40 @@ def _normalize_probabilities(probabilities: torch.Tensor) -> torch.Tensor:
     return probabilities / probabilities.sum(dim=1, keepdim=True).clamp_min(1e-12)
 
 
+def output_from_probabilities(probabilities: torch.Tensor) -> SegformerInferenceOutput:
+    probabilities = _normalize_probabilities(probabilities)
+    masks = torch.argmax(probabilities, dim=1)
+    entropy = semantic_entropy(probabilities)
+    log_probabilities = probabilities.clamp_min(1e-12).log()
+    return SegformerInferenceOutput(
+        logits=log_probabilities,
+        probabilities=probabilities,
+        masks=masks,
+        entropy=entropy,
+    )
+
+
+def average_probability_maps(probability_maps: Sequence[torch.Tensor]) -> torch.Tensor:
+    if not probability_maps:
+        raise ValueError("probability_maps must contain at least one tensor")
+
+    reference = probability_maps[0]
+    if reference.ndim != 4:
+        raise ValueError("probability maps must have shape [B, C, H, W]")
+
+    reference_shape = reference.shape
+    reference_num_classes = reference_shape[1]
+    for probabilities in probability_maps:
+        if probabilities.ndim != 4:
+            raise ValueError("probability maps must have shape [B, C, H, W]")
+        if probabilities.shape[1] != reference_num_classes:
+            raise ValueError("All probability maps must have the same class dimension")
+        if probabilities.shape != reference_shape:
+            raise ValueError("All probability maps must have the same shape")
+
+    return _normalize_probabilities(torch.stack(list(probability_maps), dim=0).mean(dim=0))
+
+
 class SegformerInferenceWrapper:
     """Frozen SegFormer predictor returning upsampled dense outputs."""
 
@@ -97,16 +131,7 @@ class SegformerInferenceWrapper:
 
     @staticmethod
     def _output_from_probabilities(probabilities: torch.Tensor) -> SegformerInferenceOutput:
-        probabilities = _normalize_probabilities(probabilities)
-        masks = torch.argmax(probabilities, dim=1)
-        entropy = semantic_entropy(probabilities)
-        log_probabilities = probabilities.clamp_min(1e-12).log()
-        return SegformerInferenceOutput(
-            logits=log_probabilities,
-            probabilities=probabilities,
-            masks=masks,
-            entropy=entropy,
-        )
+        return output_from_probabilities(probabilities)
 
     @torch.no_grad()
     def predict(
@@ -262,6 +287,68 @@ class SegformerInferenceWrapper:
             return self._output_from_probabilities(probabilities)
         finally:
             self.model.train(was_training)
+
+
+class SegformerEnsembleInferenceWrapper:
+    """Average probability predictions from multiple frozen SegFormer predictors."""
+
+    def __init__(self, predictors: Sequence[SegformerInferenceWrapper]) -> None:
+        if not predictors:
+            raise ValueError("predictors must contain at least one predictor")
+        self.predictors = list(predictors)
+
+    @staticmethod
+    def _output_from_members(outputs: Sequence[SegformerInferenceOutput]) -> SegformerInferenceOutput:
+        probabilities = average_probability_maps([output.probabilities for output in outputs])
+        return output_from_probabilities(probabilities)
+
+    @torch.no_grad()
+    def predict(
+        self,
+        pixel_values: torch.Tensor,
+        target_size: Sequence[int] | torch.Size | None = None,
+    ) -> SegformerInferenceOutput:
+        outputs = [
+            predictor.predict(pixel_values=pixel_values, target_size=target_size)
+            for predictor in self.predictors
+        ]
+        return self._output_from_members(outputs)
+
+    @torch.no_grad()
+    def predict_sliding(
+        self,
+        pixel_values: torch.Tensor,
+        window_size: int,
+        stride: int,
+    ) -> SegformerInferenceOutput:
+        outputs = [
+            predictor.predict_sliding(
+                pixel_values=pixel_values,
+                window_size=window_size,
+                stride=stride,
+            )
+            for predictor in self.predictors
+        ]
+        return self._output_from_members(outputs)
+
+    @torch.no_grad()
+    def predict_multiscale_sliding(
+        self,
+        pixel_values: torch.Tensor,
+        window_size: int,
+        stride: int,
+        scales: Sequence[float],
+    ) -> SegformerInferenceOutput:
+        outputs = [
+            predictor.predict_multiscale_sliding(
+                pixel_values=pixel_values,
+                window_size=window_size,
+                stride=stride,
+                scales=scales,
+            )
+            for predictor in self.predictors
+        ]
+        return self._output_from_members(outputs)
 
 
 def predict_segformer(

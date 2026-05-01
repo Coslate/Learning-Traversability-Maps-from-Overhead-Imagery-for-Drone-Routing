@@ -135,12 +135,12 @@ The **benchmark matrix itself is a deliverable** — nobody gets to publish a un
 Learning-Traversability-Maps-from-Overhead-Imagery-for-Drone-Routing/
 ├── src/loveda_project/
 │   ├── data.py                    # ✅ DONE — LoveDA loaders, ConcatDataset, metadata collate
-│   ├── transforms.py              # ✅ DONE — ComposeDict paired image/mask augs + strong aug preset
+│   ├── transforms.py              # ✅ DONE — ComposeDict paired image/mask augs, strong aug, rare-class crop
 │   ├── modeling.py                # ✅ DONE — SegFormer b0/b1/b2 builder with HF pretrained
 │   ├── losses.py                  # ✅ DONE — CE, CE+Dice, class weights, focal loss
 │   ├── metrics.py                 # ✅ DONE — mIoU, per-class IoU, CM saver
 │   ├── filename_utils.py          # ✅ DONE
-│   ├── inference.py               # ✅ DONE — frozen checkpoint inference, entropy, sliding/TTA probability aggregation
+│   ├── inference.py               # ✅ DONE — frozen checkpoint inference, entropy, sliding/TTA, checkpoint ensemble aggregation
 │   ├── costmap.py                 # 🔲 PR 09/15 — semantic→cost + uncertainty variants
 │   ├── uncertainty.py             # 🔲 PR 15 — entropy helper
 │   ├── route_metrics.py           # 🔲 PR 12 — path success, excess cost, violation rate
@@ -150,9 +150,9 @@ Learning-Traversability-Maps-from-Overhead-Imagery-for-Drone-Routing/
 │       └── astar.py               # 🔲 PR 10 — grid A* MVP planner
 ├── scripts/
 │   ├── day1_day2_setup.py         # ✅ DONE — data download + histogram + sample viz
-│   ├── train_segformer.py         # ✅ DONE — training entry point, supports warmup+cosine, AMP, W&B, weighted/focal losses, aug presets, grad accumulation
+│   ├── train_segformer.py         # ✅ DONE — training entry point, supports warmup+cosine, AMP, W&B, weighted/focal losses, aug presets, grad accumulation, class-aware crop
 │   ├── compute_class_stats.py     # ✅ PR 03 — train pixel counts for class-balanced losses
-│   ├── eval_segformer.py          # ✅ DONE — frozen checkpoint eval + sliding-window/TTA
+│   ├── eval_segformer.py          # ✅ DONE — frozen checkpoint eval + sliding-window/TTA + checkpoint ensemble eval
 │   ├── run_segmentation_sweep.py  # 🔲 PR 07 — release ablation sweep
 │   ├── verify_segmentation_release.py # 🔲 PR 08 — 57.3 mIoU gate
 │   ├── visualize_costmap.py       # 🔲 PR 09 — cost-map sanity figures
@@ -173,6 +173,9 @@ Learning-Traversability-Maps-from-Overhead-Imagery-for-Drone-Routing/
 │   ├── test_transforms_aug.py     # ✅ PR 04 — strong augmentation tests
 │   ├── test_modeling.py           # ✅ PR 05 — SegFormer B0/B1/B2 construction tests
 │   ├── test_gradient_accumulation.py # ✅ PR 05 — optimizer-step accumulation tests
+│   ├── test_tta.py                # ✅ PR 06 — sliding-window/TTA tests
+│   ├── test_ensemble_eval.py      # ✅ PR 06b — checkpoint ensemble tests
+│   ├── test_class_aware_crop.py   # ✅ PR 06c — rare-class crop tests
 │   ├── test_costmap.py            # 🔲 PR 09 — planned
 │   ├── test_astar.py              # 🔲 PR 10 — planned
 │   └── ...                        # one file per PR, mostly synthetic/hand-built inputs
@@ -197,14 +200,14 @@ Learning-Traversability-Maps-from-Overhead-Imagery-for-Drone-Routing/
 ### ✅ Done
 
 - **Data pipeline** (`src/loveda_project/data.py`): `WrappedLoveDAScene` per `(split, scene)` → `ConcatDataset`, custom `_collate_samples` preserves `split_name` / `scene_name` lists, `LoveDAConfig` dataclass, class histogram + sample-grid visualizers.
-- **Transforms** (`src/loveda_project/transforms.py`): paired `ComposeDict` with `EnsureTensorTypes`, `RandomCropPair`, `RandomHorizontalFlipPair`, `RandomVerticalFlipPair`, ImageNet normalization, and PR 04 `strong` augmentation preset (`RandomScalePair`, image-only color jitter, image-only Gaussian blur). Val pipeline uses `CenterCropPair`.
+- **Transforms** (`src/loveda_project/transforms.py`): paired `ComposeDict` with `EnsureTensorTypes`, `RandomCropPair`, PR06c `ClassAwareRandomCropPair`, `RandomHorizontalFlipPair`, `RandomVerticalFlipPair`, ImageNet normalization, and PR 04 `strong` augmentation preset (`RandomScalePair`, `PadToSizePair`, image-only color jitter, image-only Gaussian blur). Val pipeline uses `CenterCropPair`.
 - **Model** (`src/loveda_project/modeling.py`): SegFormer b0/b1/b2 from `nvidia/segformer-b{0,1,2}-finetuned-ade-512-512` with `ignore_mismatched_sizes=True` to remap the head to 8 classes.
 - **Loss** (`src/loveda_project/losses.py`): `SegmentationCriterion` with `ce`, `ce_dice`, or `focal`; Dice zeroes the ignore channel at both pixel and class level; class weights support `inverse`, `effective`, and `median` modes with ignore weight fixed at `0`.
-- **Training loop** (`scripts/train_segformer.py`): AMP, 3 scheduler modes (`none`, `cosine-only`, `warmup+cosine`, stepped per-optimizer-step), W&B logging, class-stats-driven weighted/focal losses, `--aug-preset {basic,strong}`, `--grad-accum-steps`, best-mIoU checkpoint + normalized confusion-matrix PNG.
+- **Training loop** (`scripts/train_segformer.py`): AMP, 3 scheduler modes (`none`, `cosine-only`, `warmup+cosine`, stepped per-optimizer-step), W&B logging, class-stats-driven weighted/focal losses, `--aug-preset {basic,strong}`, `--grad-accum-steps`, PR06c `--class-aware-crop`, best-mIoU checkpoint + normalized confusion-matrix PNG.
 - **Class stats** (`scripts/compute_class_stats.py`): scans LoveDA train masks and writes per-class pixel counts for class-balanced losses.
 - **Metrics** (`src/loveda_project/metrics.py`): `SegmentationMeter` confusion-matrix-based mIoU / per-class IoU / pixel accuracy, plus confusion-matrix plot and metrics-JSON savers.
-- **Frozen inference** (`src/loveda_project/inference.py`, `scripts/eval_segformer.py`): reusable no-grad SegFormer prediction API returning upsampled logits, probabilities, masks, and entropy, plus Gaussian-weighted sliding-window / multi-scale probability aggregation for checkpoint eval.
-- **Test bootstrap** (`tests/`): pytest import smoke test plus synthetic regression tests for `EnsureTensorTypes`, Dice ignore handling, `SegmentationMeter`, and SegFormer B0 model construction. Verified with `conda run -n loveda env PYTHONPATH=src python -m pytest tests`.
+- **Frozen inference** (`src/loveda_project/inference.py`, `scripts/eval_segformer.py`): reusable no-grad SegFormer prediction API returning upsampled logits, probabilities, masks, and entropy, plus Gaussian-weighted sliding-window / multi-scale probability aggregation and checkpoint-ensemble probability averaging for eval.
+- **Test bootstrap** (`tests/`): pytest import smoke test plus synthetic regression tests for `EnsureTensorTypes`, Dice ignore handling, `SegmentationMeter`, SegFormer B0/B1/B2 construction, TTA/ensemble eval, and class-aware crop sampling. Verified with `conda run -n loveda env PYTHONPATH=src python -m pytest tests`.
 
 ### 📊 Best recorded performance (urban + rural combined)
 
@@ -418,7 +421,7 @@ Failure panels should show the RGB image, GT mask, predicted mask, predicted cos
 
 ## 8. Revised PR Roadmap / 重新制定 PR 路線圖
 
-**Current codebase state**: the repository already has a working LoveDA data pipeline, paired transforms with basic/strong augmentation presets, SegFormer B0/B1/B2 construction, CE/CE+Dice/focal losses, class-balanced loss weighting, segmentation metrics, `scripts/train_segformer.py` with gradient accumulation, the PR 01 pytest bootstrap, the PR 02 frozen inference/eval wrapper, the PR 03 class-stats helper, and PR 06 sliding-window / multi-scale TTA evaluation. It does **not** yet have semantic-to-cost conversion, planners, route metrics, routing scripts, segmentation sweep tooling, or release-gate tooling.
+**Current codebase state**: the repository already has a working LoveDA data pipeline, paired transforms with basic/strong augmentation presets and rare-class-aware crop sampling, SegFormer B0/B1/B2 construction, CE/CE+Dice/focal losses, class-balanced loss weighting, segmentation metrics, `scripts/train_segformer.py` with gradient accumulation and class-aware crop CLI, the PR 01 pytest bootstrap, the PR 02 frozen inference/eval wrapper, the PR 03 class-stats helper, PR 06 sliding-window / multi-scale TTA evaluation, and PR 06b checkpoint-ensemble evaluation. It does **not** yet have semantic-to-cost conversion, planners, route metrics, routing scripts, segmentation sweep tooling, or release-gate tooling.
 
 **Main project goal**: produce an auditable perception-to-routing study:
 
@@ -669,6 +672,170 @@ PYTHONPATH=src python scripts/eval_segformer.py \
 ```
 
 - **Suggested commit**: `feat: add sliding-window and multi-scale evaluation`
+
+### PR 06b — Checkpoint Ensemble Evaluation
+
+- **Goal**: Test whether complementary checkpoints can improve the release mIoU without retraining. This is an eval-only extension on top of PR 06.
+- **Aggregation rule**:
+  - Each checkpoint runs the same inference mode (`none` or PR06 sliding/TTA) on the same input tile.
+  - Each checkpoint returns per-pixel **softmax probabilities**.
+  - Ensemble prediction averages probabilities across checkpoints with equal weight:
+    `P_ensemble = mean(P_checkpoint_1, ..., P_checkpoint_N)`.
+  - Do **not** average hard masks; hard voting discards confidence.
+  - Do **not** average raw logits; logits are not calibrated across checkpoints.
+  - Final mask is `argmax(P_ensemble)`.
+  - Ensemble entropy is computed from `P_ensemble`, not by averaging per-model entropies.
+- **Recommended first ensemble**:
+  - `outputs/seg_release/pr05_b2_cedice_inverse_basic_aug/checkpoints/best_model.pth` — best overall checkpoint.
+  - `outputs/seg_release/pr05_b2_focal_median_basic_aug/checkpoints/best_model.pth` — stronger `road` / `forest`.
+  - `outputs/seg_release/pr04_b1_cedice_inverse_strong_aug/checkpoints/best_model.pth` — stronger `barren`.
+- **Files**:
+  - `src/loveda_project/inference.py`
+  - `scripts/eval_segformer.py`
+  - `tests/test_ensemble_eval.py`
+- **Tests**:
+  - Two synthetic probability tensors are averaged exactly, class-wise and pixel-wise.
+  - Ensemble output preserves `[B, C, H, W]` probabilities, `[B, H, W]` mask, and `[B, H, W]` entropy shapes.
+  - Ensemble entropy is computed from averaged probabilities.
+  - Single-checkpoint `--checkpoint` evaluation path still works.
+  - Multi-checkpoint `--checkpoints` rejects empty input and incompatible class dimensions with clear errors.
+- **Pytest command**:
+
+```bash
+PYTHONPATH=src python -m pytest tests/test_ensemble_eval.py -q
+```
+
+- **Usage command**:
+
+```bash
+PYTHONPATH=src python scripts/eval_segformer.py \
+  --checkpoints \
+    outputs/seg_release/pr05_b2_cedice_inverse_basic_aug/checkpoints/best_model.pth \
+    outputs/seg_release/pr05_b2_focal_median_basic_aug/checkpoints/best_model.pth \
+    outputs/seg_release/pr04_b1_cedice_inverse_strong_aug/checkpoints/best_model.pth \
+  --root ./data \
+  --output-dir outputs/seg_release/pr06b_ensemble_b2inv_b2focal_b1strong_sliding_s1_eval \
+  --patch-size 1024 \
+  --batch-size 1 \
+  --tta sliding \
+  --window-size 512 \
+  --stride 256 \
+  --scales 1.0
+```
+
+- **Decision rule**:
+  - Current best single-checkpoint PR06 result is approximately `mean_iou = 0.53997`.
+  - If the ensemble reaches `mean_iou >= 0.545`, keep ensemble eval as a candidate release mode.
+  - If the ensemble stays below `0.545`, stop eval tricks and move to planning-facing PRs.
+- **Suggested commit**: `feat: add checkpoint ensemble evaluation`
+
+### PR 06c — Rare-Class-Aware Crop Sampling
+
+- **Implementation status**: ✅ Done.
+- **Goal**: Improve mIoU by increasing useful exposure to weak / route-critical classes during training, especially `road`, `barren`, and `forest`. This is a training-data sampling improvement, not an eval trick.
+- **Motivation**:
+  - Current best PR06b ensemble reaches approximately `mean_iou = 0.5476`, but the weakest classes remain `barren` and `forest`.
+  - Class weighting only changes the loss after a crop is sampled; it does not guarantee that rare / confusing classes appear often enough in training crops.
+  - A class-aware crop tries several candidate crops and keeps one that contains enough target-class pixels. If no candidate qualifies, it falls back to ordinary random cropping.
+- **Behavior**:
+  - Add a paired image/mask transform, tentatively `ClassAwareRandomCropPair`.
+  - The transform takes:
+    - `size`: crop size.
+    - `target_classes`: class ids or names, e.g. `road barren forest`.
+    - `min_pixels`: minimum target-class pixels required inside the crop.
+    - `num_tries`: number of random crop candidates to test before fallback.
+    - `p`: probability of using class-aware crop for a sample; otherwise use ordinary random crop.
+    - `ignore_index`: ignored mask value that must not count as a target class.
+  - It must preserve paired image/mask alignment and always return fixed `size x size` crops.
+  - It should compose cleanly with PR04 strong augmentation and the PR04/patch1024 `PadToSizePair` fix:
+    `EnsureTensorTypes -> RandomScalePair -> PadToSizePair -> ClassAwareRandomCropPair -> flips/color/blur -> NormalizeImage`.
+  - If `target_classes` are not present or no candidate satisfies `min_pixels`, fallback must be deterministic under the Python random seed and must not crash.
+- **Files**:
+  - `src/loveda_project/transforms.py`
+  - `src/loveda_project/data.py`
+  - `scripts/train_segformer.py`
+  - `tests/test_class_aware_crop.py`
+- **CLI**:
+  - `--class-aware-crop` enables class-aware sampling.
+  - `--crop-target-classes road barren forest` selects target classes by LoveDA class name.
+  - `--crop-min-pixels 1024` sets the minimum target-class pixels inside a crop.
+  - `--crop-tries 20` sets the number of candidate crops before fallback.
+  - `--class-aware-crop-prob 0.5` applies class-aware crop to 50% of training samples.
+- **Tests**:
+  - A synthetic mask with a known `barren` / `road` block produces a crop containing at least `min_pixels` target-class pixels when a valid crop exists.
+  - If target classes are absent, the transform falls back to ordinary random crop and returns the correct fixed shape.
+  - The crop preserves image/mask spatial alignment on a hand-built coordinate-coded sample.
+  - `ignore_index` pixels do not count toward `min_pixels`.
+  - `build_train_transforms(..., class_aware_crop=True, ...)` inserts the class-aware crop in place of the ordinary random crop and remains deterministic under a seeded RNG.
+  - CLI parsing rejects unknown class names with a clear error and accepts class names in any order.
+  - DataLoader smoke on two synthetic transformed samples can stack a batch with identical shapes.
+- **Pytest command**:
+
+```bash
+PYTHONPATH=src python -m pytest tests/test_class_aware_crop.py -q
+```
+
+- **Full regression command**:
+
+```bash
+PYTHONPATH=src python -m pytest tests/ -q
+```
+
+- **Usage command**:
+
+```bash
+PYTHONPATH=src python scripts/train_segformer.py \
+  --root ./data \
+  --output-dir ./outputs/seg_release/pr06c_b2_inverse_classaware_crop \
+  --variant segformer-b2 \
+  --pretrained \
+  --epochs 45 \
+  --batch-size 2 \
+  --grad-accum-steps 2 \
+  --patch-size 512 \
+  --lr 6e-5 \
+  --scheduler-type warmup+cosine \
+  --warmup-epochs 5 \
+  --min-lr 1e-6 \
+  --weight-decay 1e-2 \
+  --loss-name ce_dice \
+  --dice-weight 0.25 \
+  --class-weight-mode inverse \
+  --class-stats outputs/class_stats/urban_rural.json \
+  --aug-preset basic \
+  --class-aware-crop \
+  --crop-target-classes road barren forest \
+  --crop-min-pixels 1024 \
+  --crop-tries 20 \
+  --class-aware-crop-prob 0.5 \
+  --amp \
+  --save-every 0 \
+  --use-wandb \
+  --wandb-project loveda-segformer \
+  --wandb-run-name b2_inverse_classaware_road_barren_forest
+```
+
+- **Evaluation after training**:
+
+```bash
+PYTHONPATH=src python scripts/eval_segformer.py \
+  --checkpoint outputs/seg_release/pr06c_b2_inverse_classaware_crop/checkpoints/best_model.pth \
+  --root ./data \
+  --output-dir outputs/seg_release/pr06c_b2_inverse_classaware_sliding_s1_eval \
+  --variant segformer-b2 \
+  --patch-size 1024 \
+  --batch-size 1 \
+  --tta sliding \
+  --window-size 512 \
+  --stride 256 \
+  --scales 1.0
+```
+
+- **Decision rule**:
+  - Compare against current best ensemble `mean_iou ~= 0.5476`.
+  - Keep class-aware crop in the release recipe if it improves `barren` / `forest` without dropping `road` enough to reduce overall mIoU.
+  - If class-aware crop does not improve mIoU meaningfully, move to the Lovasz-loss ablation.
+- **Suggested commit**: `feat: add rare-class-aware crop sampling`
 
 ### PR 07 — Config-Driven Segmentation Sweep
 
@@ -1009,6 +1176,8 @@ PYTHONPATH=src python scripts/verify_final_artifacts.py \
 | 04 | ✅ Done | Strong augmentation | Targets domain shift and robust road/barren prediction | `test_transforms_aug.py` |
 | 05 | ✅ Done | B2 + grad accumulation | Adds model capacity for the release gate | `test_modeling.py`, `test_gradient_accumulation.py` |
 | 06 | ✅ Done | Sliding/TTA eval | Improves official eval without retraining | `test_tta.py` |
+| 06b | ✅ Done | Checkpoint ensemble eval | Tests complementary checkpoints via probability averaging | `test_ensemble_eval.py` |
+| 06c | ✅ Done | Rare-class-aware crop sampling | Increases exposure to weak classes during training | `test_class_aware_crop.py` |
 | 07 | 🔲 Not started | Segmentation sweep | Makes mIoU ablations reproducible | `test_segmentation_sweep.py` |
 | 08 | 🔲 Not started | Release gate | Prevents unsupported 57.3 mIoU claims | `test_segmentation_release_gate.py` |
 | 09 | 🔲 Not started | Semantic-to-cost | Bridges perception to planning representation | `test_costmap.py` |
