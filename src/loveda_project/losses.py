@@ -237,6 +237,10 @@ class SegmentationCriterion(nn.Module):
         if self.cfg.loss_name == "ce_lovasz":
             lovasz_loss = lovasz_softmax_loss(logits=logits, target=target, ignore_index=self.cfg.ignore_index)
             return ce_loss + self.cfg.lovasz_weight * lovasz_loss
+        if self.cfg.loss_name == "ce_dice_lovasz":
+            dice_loss = self.dice(logits, target)
+            lovasz_loss = lovasz_softmax_loss(logits=logits, target=target, ignore_index=self.cfg.ignore_index)
+            return ce_loss + self.cfg.dice_weight * dice_loss + self.cfg.lovasz_weight * lovasz_loss
         if self.cfg.loss_name == "focal":
             return focal_cross_entropy_loss(
                 logits=logits,

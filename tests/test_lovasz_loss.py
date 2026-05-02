@@ -6,6 +6,7 @@ import torch.nn.functional as F
 
 from loveda_project.losses import (
     CriterionConfig,
+    MulticlassDiceLoss,
     SegmentationCriterion,
     flatten_probabilities,
     lovasz_grad,
@@ -136,11 +137,59 @@ def test_ce_lovasz_criterion_matches_weighted_sum_formula() -> None:
     assert criterion(logits, target).item() == pytest.approx(expected.item())
 
 
+def test_ce_dice_lovasz_criterion_matches_weighted_sum_formula() -> None:
+    logits = torch.tensor(
+        [
+            [
+                [[1.0, -0.5]],
+                [[0.0, 2.0]],
+                [[-1.0, 0.5]],
+            ]
+        ]
+    )
+    target = torch.tensor([[[1, 2]]], dtype=torch.long)
+    class_weights = torch.tensor([0.0, 2.0, 0.5])
+    criterion = SegmentationCriterion(
+        CriterionConfig(
+            num_classes=3,
+            ignore_index=0,
+            loss_name="ce_dice_lovasz",
+            dice_weight=0.25,
+            lovasz_weight=0.3,
+            class_weights=class_weights,
+        )
+    )
+    dice = MulticlassDiceLoss(num_classes=3, ignore_index=0)
+
+    expected = F.cross_entropy(logits, target, weight=class_weights, ignore_index=0)
+    expected = expected + 0.25 * dice(logits, target)
+    expected = expected + 0.3 * lovasz_softmax_loss(logits, target, ignore_index=0)
+
+    assert criterion(logits, target).item() == pytest.approx(expected.item())
+
+
 def test_train_cli_accepts_lovasz_losses_and_weight() -> None:
     args = parse_args(["--loss-name", "ce_lovasz", "--lovasz-weight", "0.75"])
 
     assert args.loss_name == "ce_lovasz"
     assert args.lovasz_weight == pytest.approx(0.75)
+
+
+def test_train_cli_accepts_ce_dice_lovasz_with_dice_and_lovasz_weights() -> None:
+    args = parse_args(
+        [
+            "--loss-name",
+            "ce_dice_lovasz",
+            "--dice-weight",
+            "0.25",
+            "--lovasz-weight",
+            "0.3",
+        ]
+    )
+
+    assert args.loss_name == "ce_dice_lovasz"
+    assert args.dice_weight == pytest.approx(0.25)
+    assert args.lovasz_weight == pytest.approx(0.3)
 
 
 def test_train_cli_rejects_negative_lovasz_weight() -> None:

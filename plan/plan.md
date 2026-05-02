@@ -136,8 +136,8 @@ Learning-Traversability-Maps-from-Overhead-Imagery-for-Drone-Routing/
 ├── src/loveda_project/
 │   ├── data.py                    # ✅ DONE — LoveDA loaders, ConcatDataset, metadata collate
 │   ├── transforms.py              # ✅ DONE — ComposeDict paired image/mask augs, strong aug, rare-class crop
-│   ├── modeling.py                # ✅ DONE — SegFormer b0/b1/b2 builder with HF pretrained
-│   ├── losses.py                  # ✅ DONE — CE, CE+Dice, focal, Lovasz, class weights
+│   ├── modeling.py                # ✅ DONE — SegFormer b0-b5 builder with HF pretrained
+│   ├── losses.py                  # ✅ DONE — CE, CE+Dice, focal, Lovasz, CE+Dice+Lovasz, class weights
 │   ├── metrics.py                 # ✅ DONE — mIoU, per-class IoU, CM saver
 │   ├── filename_utils.py          # ✅ DONE
 │   ├── inference.py               # ✅ DONE — frozen checkpoint inference, entropy, sliding/TTA, checkpoint ensemble aggregation
@@ -202,9 +202,9 @@ Learning-Traversability-Maps-from-Overhead-Imagery-for-Drone-Routing/
 
 - **Data pipeline** (`src/loveda_project/data.py`): `WrappedLoveDAScene` per `(split, scene)` → `ConcatDataset`, custom `_collate_samples` preserves `split_name` / `scene_name` lists, `LoveDAConfig` dataclass, class histogram + sample-grid visualizers.
 - **Transforms** (`src/loveda_project/transforms.py`): paired `ComposeDict` with `EnsureTensorTypes`, `RandomCropPair`, PR06c `ClassAwareRandomCropPair`, `RandomHorizontalFlipPair`, `RandomVerticalFlipPair`, ImageNet normalization, and PR 04 `strong` augmentation preset (`RandomScalePair`, `PadToSizePair`, image-only color jitter, image-only Gaussian blur). Val pipeline uses `CenterCropPair`.
-- **Model** (`src/loveda_project/modeling.py`): SegFormer b0/b1/b2 from `nvidia/segformer-b{0,1,2}-finetuned-ade-512-512` with `ignore_mismatched_sizes=True` to remap the head to 8 classes.
-- **Loss** (`src/loveda_project/losses.py`): `SegmentationCriterion` with `ce`, `ce_dice`, `focal`, `lovasz`, or `ce_lovasz`; Dice zeroes the ignore channel at both pixel and class level; Lovasz drops ignored pixels and optimizes a differentiable IoU surrogate over present classes; class weights support `inverse`, `effective`, and `median` modes with ignore weight fixed at `0`.
-- **Training loop** (`scripts/train_segformer.py`): AMP, 3 scheduler modes (`none`, `cosine-only`, `warmup+cosine`, stepped per-optimizer-step), W&B logging, class-stats-driven weighted/focal losses, PR06d `--loss-name {lovasz,ce_lovasz}` with `--lovasz-weight`, `--aug-preset {basic,strong}`, `--grad-accum-steps`, PR06c `--class-aware-crop`, best-mIoU checkpoint + normalized confusion-matrix PNG.
+- **Model** (`src/loveda_project/modeling.py`): SegFormer b0/b1/b2/b3/b4/b5 from `nvidia/segformer-b{0,1,2,3,4,5}-finetuned-ade-512-512` with `ignore_mismatched_sizes=True` to remap the head to 8 classes.
+- **Loss** (`src/loveda_project/losses.py`): `SegmentationCriterion` with `ce`, `ce_dice`, `focal`, `lovasz`, `ce_lovasz`, or `ce_dice_lovasz`; Dice zeroes the ignore channel at both pixel and class level; Lovasz drops ignored pixels and optimizes a differentiable IoU surrogate over present classes; class weights support `inverse`, `effective`, and `median` modes with ignore weight fixed at `0`.
+- **Training loop** (`scripts/train_segformer.py`): AMP, 3 scheduler modes (`none`, `cosine-only`, `warmup+cosine`, stepped per-optimizer-step), W&B logging, class-stats-driven weighted/focal losses, PR06d `--loss-name {lovasz,ce_lovasz}` with `--lovasz-weight`, PR06f `--loss-name ce_dice_lovasz`, `--aug-preset {basic,strong}`, `--grad-accum-steps`, PR06c `--class-aware-crop`, best-mIoU checkpoint + normalized confusion-matrix PNG.
 - **Class stats** (`scripts/compute_class_stats.py`): scans LoveDA train masks and writes per-class pixel counts for class-balanced losses.
 - **Metrics** (`src/loveda_project/metrics.py`): `SegmentationMeter` confusion-matrix-based mIoU / per-class IoU / pixel accuracy, plus confusion-matrix plot and metrics-JSON savers.
 - **Frozen inference** (`src/loveda_project/inference.py`, `scripts/eval_segformer.py`): reusable no-grad SegFormer prediction API returning upsampled logits, probabilities, masks, and entropy, plus Gaussian-weighted sliding-window / multi-scale probability aggregation and checkpoint-ensemble probability averaging for eval.
@@ -422,7 +422,7 @@ Failure panels should show the RGB image, GT mask, predicted mask, predicted cos
 
 ## 8. Revised PR Roadmap / 重新制定 PR 路線圖
 
-**Current codebase state**: the repository already has a working LoveDA data pipeline, paired transforms with basic/strong augmentation presets and rare-class-aware crop sampling, SegFormer B0/B1/B2 construction, CE/CE+Dice/focal/Lovasz losses, class-balanced loss weighting, segmentation metrics, `scripts/train_segformer.py` with gradient accumulation, class-aware crop CLI, and Lovasz CLI, the PR 01 pytest bootstrap, the PR 02 frozen inference/eval wrapper, the PR 03 class-stats helper, PR 06 sliding-window / multi-scale TTA evaluation, and PR 06b checkpoint-ensemble evaluation. It does **not** yet have semantic-to-cost conversion, planners, route metrics, routing scripts, segmentation sweep tooling, or release-gate tooling.
+**Current codebase state**: the repository already has a working LoveDA data pipeline, paired transforms with basic/strong augmentation presets and rare-class-aware crop sampling, SegFormer B0/B1/B2/B3/B4/B5 construction, CE/CE+Dice/focal/Lovasz/CE+Dice+Lovasz losses, class-balanced loss weighting, segmentation metrics, `scripts/train_segformer.py` with gradient accumulation, class-aware crop CLI, and Lovasz CLI, the PR 01 pytest bootstrap, the PR 02 frozen inference/eval wrapper, the PR 03 class-stats helper, PR 06 sliding-window / multi-scale TTA evaluation, and PR 06b checkpoint-ensemble evaluation. It does **not** yet have semantic-to-cost conversion, planners, route metrics, routing scripts, segmentation sweep tooling, or release-gate tooling.
 
 **Main project goal**: produce an auditable perception-to-routing study:
 
@@ -942,6 +942,126 @@ PYTHONPATH=src python scripts/eval_segformer.py \
   - Keep PR06d in the release recipe only if single or ensemble eval improves current best `mean_iou ~= 0.5486`.
 - **Suggested commit**: `feat: add lovasz softmax segmentation loss`
 
+### PR 06f — Larger SegFormer Variants + CE+Dice+Lovasz
+
+- **Implementation status**: ✅ Done.
+- **Goal**: Enable the Tier-A backbone step change by supporting SegFormer-B3/B4/B5 and a combined `CE + Dice + Lovasz` training objective. This PR is required before running the B3/B4/B5 mIoU ablations.
+- **Motivation**:
+  - The current best release candidate is approximately `mean_iou = 0.5496`, still about `2.34` mIoU points below the `0.5730` target.
+  - B0 -> B2 already improved capacity. The next plausible training-side jump is a larger MiT backbone (`b3/b4/b5`).
+  - CE+Dice has been stable; Lovasz is more aligned with IoU. Combining them allows CE to stabilize pixel classification, Dice to improve overlap, and Lovasz to pull toward mIoU.
+- **Behavior**:
+  - Extend `SEGFORMER_VARIANTS` in `src/loveda_project/modeling.py`:
+    - `segformer-b3`: HuggingFace `nvidia/segformer-b3-finetuned-ade-512-512`
+    - `segformer-b4`: HuggingFace `nvidia/segformer-b4-finetuned-ade-512-512`
+    - `segformer-b5`: HuggingFace `nvidia/segformer-b5-finetuned-ade-512-512`
+  - Extend `HF_PRETRAINED_NAMES` with the same B3/B4/B5 names.
+  - Update `scripts/train_segformer.py --variant` choices to include `segformer-b3`, `segformer-b4`, and `segformer-b5`.
+  - If `scripts/eval_segformer.py` has explicit variant choices, update those too so B3/B4/B5 checkpoints can be evaluated.
+  - Add `loss_name="ce_dice_lovasz"` to `SegmentationCriterion`.
+  - Formula:
+
+```text
+loss = CE + dice_weight * Dice + lovasz_weight * Lovasz
+```
+
+  - Keep existing `--dice-weight` and `--lovasz-weight`; do not add another weight knob.
+  - Class weights apply to the CE component only, matching `ce_lovasz`; Dice and Lovasz remain unweighted class-averaged overlap/IoU terms.
+- **Files**:
+  - `src/loveda_project/modeling.py`
+  - `src/loveda_project/losses.py`
+  - `scripts/train_segformer.py`
+  - `scripts/eval_segformer.py` if variant choices are duplicated there
+  - `tests/test_modeling.py`
+  - `tests/test_lovasz_loss.py` or a new focused `tests/test_ce_dice_lovasz.py`
+  - `plan/plan.md`
+- **Tests**:
+  - `test_modeling.py` builds `segformer-b0` through `segformer-b5` without pretrained weights and verifies:
+    - `config.num_labels == len(CLASS_NAMES)`;
+    - `semantic_loss_ignore_index == IGNORE_INDEX`;
+    - decoder head output channels match LoveDA classes;
+    - B3/B4/B5 use the expected config depth / decoder hidden size.
+  - A test verifies `HF_PRETRAINED_NAMES` contains B3/B4/B5 with exact expected HuggingFace model IDs.
+  - Train CLI parsing accepts `--variant segformer-b3`, `segformer-b4`, and `segformer-b5`.
+  - Eval CLI parsing accepts the same variants if eval has an explicit choices list.
+  - `ce_dice_lovasz` criterion matches the hand-composed formula:
+
+```text
+CrossEntropyLoss(weight=class_weights, ignore_index=0)
++ dice_weight * MulticlassDiceLoss(...)
++ lovasz_weight * lovasz_softmax_loss(...)
+```
+
+  - Existing `ce`, `ce_dice`, `focal`, `lovasz`, and `ce_lovasz` tests still pass unchanged.
+- **Pytest commands**:
+
+```bash
+PYTHONPATH=src python -m pytest tests/test_modeling.py tests/test_lovasz_loss.py -q
+```
+
+- **Full regression command**:
+
+```bash
+PYTHONPATH=src python -m pytest tests/ -q
+```
+
+- **Recommended A1 training command after implementation**:
+
+```bash
+PYTHONPATH=src python scripts/train_segformer.py \
+  --root ./data \
+  --output-dir ./outputs/seg_release/pr06f_b3_cedice_lovasz_inverse_strong_p1024 \
+  --variant segformer-b3 \
+  --pretrained \
+  --epochs 45 \
+  --batch-size 1 \
+  --grad-accum-steps 8 \
+  --patch-size 1024 \
+  --lr 2e-5 \
+  --scheduler-type warmup+cosine \
+  --warmup-epochs 5 \
+  --min-lr 1e-6 \
+  --weight-decay 1e-2 \
+  --loss-name ce_dice_lovasz \
+  --dice-weight 0.25 \
+  --lovasz-weight 0.3 \
+  --class-weight-mode inverse \
+  --class-stats outputs/class_stats/urban_rural.json \
+  --aug-preset strong \
+  --class-aware-crop \
+  --crop-target-classes barren forest road \
+  --crop-min-pixels 1024 \
+  --crop-tries 30 \
+  --class-aware-crop-prob 0.5 \
+  --amp \
+  --save-every 0 \
+  --use-wandb \
+  --wandb-project loveda-segformer \
+  --wandb-run-name b3_cedice_lovasz_inverse_strong_p1024
+```
+
+- **Recommended A1 evaluation command**:
+
+```bash
+PYTHONPATH=src python scripts/eval_segformer.py \
+  --checkpoint outputs/seg_release/pr06f_b3_cedice_lovasz_inverse_strong_p1024/checkpoints/best_model.pth \
+  --root ./data \
+  --output-dir outputs/seg_release/pr06f_b3_cedice_lovasz_inverse_strong_p1024_sliding_s1_eval \
+  --variant segformer-b3 \
+  --patch-size 1024 \
+  --batch-size 1 \
+  --tta sliding \
+  --window-size 512 \
+  --stride 256 \
+  --scales 1.0
+```
+
+- **Decision rule**:
+  - If B3 single-checkpoint sliding eval beats the current best single checkpoint (`~0.5422`) or provides complementary `barren/forest` gains, add it to the current best ensemble.
+  - If B3 single eval is below current best single and does not add a class-specific strength, do not spend time on B4/B5 yet.
+  - Only move to B4/B5 after confirming B3 is trainable in available VRAM and improves either single mIoU or ensemble mIoU.
+- **Suggested commit**: `feat: add larger segformer variants and ce-dice-lovasz loss`
+
 ### PR 07 — Config-Driven Segmentation Sweep
 
 - **Goal**: Make the mIoU improvement path auditable by recording comparable runs and a single result table. Also produce the three checkpoints (`combined`, `urban-only`, `rural-only`) needed for the domain-shift matrix.
@@ -1284,6 +1404,7 @@ PYTHONPATH=src python scripts/verify_final_artifacts.py \
 | 06b | ✅ Done | Checkpoint ensemble eval | Tests complementary checkpoints via probability averaging | `test_ensemble_eval.py` |
 | 06c | ✅ Done | Rare-class-aware crop sampling | Increases exposure to weak classes during training | `test_class_aware_crop.py` |
 | 06d | ✅ Done | Lovasz / CE+Lovasz loss | Optimizes a differentiable IoU surrogate for mIoU gains | `test_lovasz_loss.py` |
+| 06f | ✅ Done | B3/B4/B5 + CE+Dice+Lovasz | Enables Tier-A backbone capacity ablation | `test_modeling.py`, `test_lovasz_loss.py` |
 | 07 | 🔲 Not started | Segmentation sweep | Makes mIoU ablations reproducible | `test_segmentation_sweep.py` |
 | 08 | 🔲 Not started | Release gate | Prevents unsupported 57.3 mIoU claims | `test_segmentation_release_gate.py` |
 | 09 | 🔲 Not started | Semantic-to-cost | Bridges perception to planning representation | `test_costmap.py` |

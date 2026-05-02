@@ -17,7 +17,7 @@ from tqdm import tqdm
 from loveda_project.data import CLASS_NAMES, IGNORE_INDEX, LoveDAConfig, build_dataloaders, save_json, set_seed
 from loveda_project.losses import CriterionConfig, SegmentationCriterion, compute_class_weights
 from loveda_project.metrics import SegmentationMeter, save_confusion_matrix_plot, save_metrics_json
-from loveda_project.modeling import SegformerBuildConfig, build_segformer_model
+from loveda_project.modeling import SEGFORMER_VARIANTS, SegformerBuildConfig, build_segformer_model
 
 try:
     import wandb
@@ -50,7 +50,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Train SegFormer baseline on LoveDA")
     parser.add_argument("--root", type=str, default="./data")
     parser.add_argument("--output-dir", type=str, default="./outputs/day3_day5")
-    parser.add_argument("--variant", type=str, default="segformer-b0", choices=["segformer-b0", "segformer-b1", "segformer-b2"])
+    parser.add_argument("--variant", type=str, default="segformer-b0", choices=sorted(SEGFORMER_VARIANTS))
     parser.add_argument("--pretrained", action="store_true", help="Load HuggingFace pretrained weights if available")
     parser.add_argument("--epochs", type=int, default=20)
     parser.add_argument("--batch-size", type=int, default=4)
@@ -79,7 +79,12 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--warmup-epochs", type=int, default=2)
 
     parser.add_argument("--weight-decay", type=float, default=1e-2)
-    parser.add_argument("--loss-name", type=str, default="ce", choices=["ce", "ce_dice", "focal", "lovasz", "ce_lovasz"])
+    parser.add_argument(
+        "--loss-name",
+        type=str,
+        default="ce",
+        choices=["ce", "ce_dice", "focal", "lovasz", "ce_lovasz", "ce_dice_lovasz"],
+    )
     parser.add_argument("--dice-weight", type=float, default=0.25)
     parser.add_argument("--lovasz-weight", type=float, default=0.5)
     parser.add_argument(

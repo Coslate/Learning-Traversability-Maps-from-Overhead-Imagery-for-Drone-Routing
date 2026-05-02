@@ -14,16 +14,17 @@ from loveda_project.inference import (
     load_segformer_from_checkpoint,
 )
 from loveda_project.metrics import MetricSummary, SegmentationMeter, save_confusion_matrix_plot, save_metrics_json
+from loveda_project.modeling import SEGFORMER_VARIANTS
 
 
-def parse_args() -> argparse.Namespace:
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Evaluate a frozen SegFormer checkpoint on LoveDA")
     checkpoint_group = parser.add_mutually_exclusive_group(required=True)
     checkpoint_group.add_argument("--checkpoint", type=str)
     checkpoint_group.add_argument("--checkpoints", nargs="+", type=str)
     parser.add_argument("--root", type=str, default="./data")
     parser.add_argument("--output-dir", type=str, default="./outputs/eval_smoke")
-    parser.add_argument("--variant", type=str, default=None, choices=["segformer-b0", "segformer-b1", "segformer-b2"])
+    parser.add_argument("--variant", type=str, default=None, choices=sorted(SEGFORMER_VARIANTS))
     parser.add_argument("--batch-size", type=int, default=4)
     parser.add_argument("--num-workers", type=int, default=4)
     parser.add_argument("--patch-size", type=int, default=512)
@@ -39,7 +40,7 @@ def parse_args() -> argparse.Namespace:
         default=["urban", "rural"],
         choices=["urban", "rural"],
     )
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
     if args.checkpoints is not None and args.variant is not None:
         parser.error("--variant can only be used with --checkpoint; ensemble checkpoints use their saved variants")
     return args

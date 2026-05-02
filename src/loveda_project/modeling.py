@@ -21,12 +21,30 @@ SEGFORMER_VARIANTS = {
         "hidden_sizes": [64, 128, 320, 512],
         "decoder_hidden_size": 768,
     },
+    "segformer-b3": {
+        "depths": [3, 4, 18, 3],
+        "hidden_sizes": [64, 128, 320, 512],
+        "decoder_hidden_size": 768,
+    },
+    "segformer-b4": {
+        "depths": [3, 8, 27, 3],
+        "hidden_sizes": [64, 128, 320, 512],
+        "decoder_hidden_size": 768,
+    },
+    "segformer-b5": {
+        "depths": [3, 6, 40, 3],
+        "hidden_sizes": [64, 128, 320, 512],
+        "decoder_hidden_size": 768,
+    },
 }
 
 HF_PRETRAINED_NAMES = {
     "segformer-b0": "nvidia/segformer-b0-finetuned-ade-512-512",
     "segformer-b1": "nvidia/segformer-b1-finetuned-ade-512-512",
     "segformer-b2": "nvidia/segformer-b2-finetuned-ade-512-512",
+    "segformer-b3": "nvidia/segformer-b3-finetuned-ade-512-512",
+    "segformer-b4": "nvidia/segformer-b4-finetuned-ade-512-512",
+    "segformer-b5": "nvidia/segformer-b5-finetuned-ade-512-512",
 }
 
 
