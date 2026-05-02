@@ -79,8 +79,9 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--warmup-epochs", type=int, default=2)
 
     parser.add_argument("--weight-decay", type=float, default=1e-2)
-    parser.add_argument("--loss-name", type=str, default="ce", choices=["ce", "ce_dice", "focal"])
+    parser.add_argument("--loss-name", type=str, default="ce", choices=["ce", "ce_dice", "focal", "lovasz", "ce_lovasz"])
     parser.add_argument("--dice-weight", type=float, default=0.25)
+    parser.add_argument("--lovasz-weight", type=float, default=0.5)
     parser.add_argument(
         "--class-weight-mode",
         type=str,
@@ -131,6 +132,8 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         parser.error("--crop-tries must be > 0")
     if not 0.0 <= args.class_aware_crop_prob <= 1.0:
         parser.error("--class-aware-crop-prob must be between 0 and 1")
+    if args.lovasz_weight < 0:
+        parser.error("--lovasz-weight must be >= 0")
 
     try:
         args.crop_target_class_ids = resolve_crop_target_classes(args.crop_target_classes)
@@ -395,6 +398,7 @@ def main() -> None:
             ignore_index=IGNORE_INDEX,
             loss_name=args.loss_name,
             dice_weight=args.dice_weight,
+            lovasz_weight=args.lovasz_weight,
             class_weights=class_weights,
             focal_gamma=args.focal_gamma,
         )

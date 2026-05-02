@@ -374,6 +374,66 @@ PYTHONPATH=src python scripts/train_segformer.py \
   --wandb-project loveda-segformer \
   --wandb-run-name b2_pt_cedice_inverse_strong_patch1024_warmcos45
 
+PYTHONPATH=src python scripts/train_segformer.py \
+  --root ./data \
+  --output-dir ./outputs/seg_release/pr06c_b2_cedice_inverse_classaware_crop \
+  --variant segformer-b2 \
+  --pretrained \
+  --epochs 45 \
+  --batch-size 2 \
+  --grad-accum-steps 2 \
+  --patch-size 512 \
+  --lr 6e-5 \
+  --scheduler-type warmup+cosine \
+  --warmup-epochs 5 \
+  --min-lr 1e-6 \
+  --weight-decay 1e-2 \
+  --loss-name ce_dice \
+  --dice-weight 0.25 \
+  --class-weight-mode inverse \
+  --class-stats outputs/class_stats/urban_rural.json \
+  --aug-preset basic \
+  --class-aware-crop \
+  --crop-target-classes road barren forest \
+  --crop-min-pixels 1024 \
+  --crop-tries 20 \
+  --class-aware-crop-prob 0.5 \
+  --amp \
+  --save-every 0 \
+  --use-wandb \
+  --wandb-project loveda-segformer \
+  --wandb-run-name b2_cedice_inverse_classaware_road_barren_forest_patch512
+
+PYTHONPATH=src python scripts/train_segformer.py \
+  --root ./data \
+  --output-dir ./outputs/seg_release/pr06d_b2_celovasz_inverse_classaware_crop \
+  --variant segformer-b2 \
+  --pretrained \
+  --epochs 45 \
+  --batch-size 2 \
+  --grad-accum-steps 2 \
+  --patch-size 512 \
+  --lr 6e-5 \
+  --scheduler-type warmup+cosine \
+  --warmup-epochs 5 \
+  --min-lr 1e-6 \
+  --weight-decay 1e-2 \
+  --loss-name ce_lovasz \
+  --lovasz-weight 0.5 \
+  --class-weight-mode inverse \
+  --class-stats outputs/class_stats/urban_rural.json \
+  --aug-preset basic \
+  --class-aware-crop \
+  --crop-target-classes road barren forest \
+  --crop-min-pixels 1024 \
+  --crop-tries 20 \
+  --class-aware-crop-prob 0.5 \
+  --amp \
+  --save-every 0 \
+  --use-wandb \
+  --wandb-project loveda-segformer \
+  --wandb-run-name b2_celovasz_inverse_classaware_patch512
+
 
 # Calculate class stats
 PYTHONPATH=src python scripts/compute_class_stats.py \
@@ -581,3 +641,30 @@ PYTHONPATH=src python scripts/eval_segformer.py \
   --window-size 512 \
   --stride 256 \
   --scales 0.75 1.0 1.25
+
+PYTHONPATH=src python scripts/eval_segformer.py \
+  --checkpoint outputs/seg_release/pr06c_b2_cedice_inverse_classaware_crop/checkpoints/best_model.pth \
+  --root ./data \
+  --output-dir outputs/seg_release/pr06c_b2_inverse_classaware_sliding_s1_eval \
+  --variant segformer-b2 \
+  --patch-size 1024 \
+  --batch-size 1 \
+  --tta sliding \
+  --window-size 512 \
+  --stride 256 \
+  --scales 1.0
+
+PYTHONPATH=src python scripts/eval_segformer.py \
+  --checkpoints \
+    outputs/seg_release/pr05_b2_cedice_inverse_basic_aug/checkpoints/best_model.pth \
+    outputs/seg_release/pr05_b2_focal_median_basic_aug/checkpoints/best_model.pth \
+    outputs/seg_release/pr04_b1_cedice_inverse_strong_aug/checkpoints/best_model.pth \
+    outputs/seg_release/pr06c_b2_cedice_inverse_classaware_crop/checkpoints/best_model.pth \
+  --root ./data \
+  --output-dir outputs/seg_release/pr06c_ensemble_b2inv_b2focal_b1strong_classaware_sliding_s1_eval \
+  --patch-size 1024 \
+  --batch-size 1 \
+  --tta sliding \
+  --window-size 512 \
+  --stride 256 \
+  --scales 1.0

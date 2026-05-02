@@ -93,6 +93,82 @@ def focal_cross_entropy_loss(
     return focal.sum() / valid_count
 
 
+def lovasz_grad(sorted_foreground: torch.Tensor) -> torch.Tensor:
+    """Compute Lovasz extension gradients for sorted binary foreground labels."""
+    if sorted_foreground.ndim != 1:
+        raise ValueError("sorted_foreground must be a 1D tensor")
+    if not sorted_foreground.is_floating_point():
+        sorted_foreground = sorted_foreground.float()
+    num_pixels = sorted_foreground.numel()
+    if num_pixels == 0:
+        return sorted_foreground
+
+    gt_sum = sorted_foreground.sum()
+    intersection = gt_sum - sorted_foreground.cumsum(dim=0)
+    union = gt_sum + (1.0 - sorted_foreground).cumsum(dim=0)
+    jaccard = 1.0 - intersection / union.clamp_min(torch.finfo(sorted_foreground.dtype).eps)
+    if num_pixels > 1:
+        jaccard = torch.cat([jaccard[:1], jaccard[1:] - jaccard[:-1]])
+    return jaccard
+
+
+def flatten_probabilities(
+    probabilities: torch.Tensor,
+    target: torch.Tensor,
+    ignore_index: int,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Flatten probabilities and labels, dropping ignored target pixels."""
+    if probabilities.ndim != 4:
+        raise ValueError("probabilities must have shape [B, C, H, W]")
+    if target.ndim != 3:
+        raise ValueError("target must have shape [B, H, W]")
+    if probabilities.shape[0] != target.shape[0] or probabilities.shape[-2:] != target.shape[-2:]:
+        raise ValueError("probabilities and target spatial dimensions must match")
+
+    flattened_probs = probabilities.permute(0, 2, 3, 1).reshape(-1, probabilities.shape[1])
+    flattened_target = target.reshape(-1)
+    valid = flattened_target != ignore_index
+    return flattened_probs[valid], flattened_target[valid]
+
+
+def lovasz_softmax_loss(
+    logits: torch.Tensor,
+    target: torch.Tensor,
+    ignore_index: int = 0,
+    classes: str = "present",
+) -> torch.Tensor:
+    """Compute multiclass Lovasz-Softmax loss for segmentation logits."""
+    if classes not in {"present", "all"}:
+        raise ValueError(f"Unsupported classes mode: {classes}")
+    if logits.ndim != 4:
+        raise ValueError("logits must have shape [B, C, H, W]")
+    if target.ndim != 3:
+        raise ValueError("target must have shape [B, H, W]")
+
+    probabilities = torch.softmax(logits, dim=1)
+    flattened_probs, flattened_target = flatten_probabilities(probabilities, target, ignore_index=ignore_index)
+    if flattened_target.numel() == 0:
+        return logits.sum() * 0.0
+
+    num_classes = logits.shape[1]
+    losses = []
+    for class_idx in range(num_classes):
+        if class_idx == ignore_index:
+            continue
+        foreground = (flattened_target == class_idx).to(dtype=flattened_probs.dtype)
+        if classes == "present" and foreground.sum() == 0:
+            continue
+        class_prob = flattened_probs[:, class_idx]
+        errors = (foreground - class_prob).abs()
+        sorted_errors, order = torch.sort(errors, descending=True)
+        sorted_foreground = foreground[order]
+        losses.append(torch.dot(sorted_errors, lovasz_grad(sorted_foreground)))
+
+    if not losses:
+        return logits.sum() * 0.0
+    return torch.stack(losses).mean()
+
+
 class MulticlassDiceLoss(nn.Module):
     def __init__(self, num_classes: int, ignore_index: int = 0, smooth: float = 1.0) -> None:
         super().__init__()
@@ -137,6 +213,7 @@ class CriterionConfig:
     ignore_index: int = 0
     loss_name: str = "ce"
     dice_weight: float = 0.25
+    lovasz_weight: float = 0.5
     class_weights: torch.Tensor | None = None
     focal_gamma: float = 2.0
 
@@ -155,6 +232,11 @@ class SegmentationCriterion(nn.Module):
         if self.cfg.loss_name == "ce_dice":
             dice_loss = self.dice(logits, target)
             return ce_loss + self.cfg.dice_weight * dice_loss
+        if self.cfg.loss_name == "lovasz":
+            return lovasz_softmax_loss(logits=logits, target=target, ignore_index=self.cfg.ignore_index)
+        if self.cfg.loss_name == "ce_lovasz":
+            lovasz_loss = lovasz_softmax_loss(logits=logits, target=target, ignore_index=self.cfg.ignore_index)
+            return ce_loss + self.cfg.lovasz_weight * lovasz_loss
         if self.cfg.loss_name == "focal":
             return focal_cross_entropy_loss(
                 logits=logits,
