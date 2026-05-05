@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 from pathlib import Path
 
 import torch
@@ -35,6 +36,19 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--stride", type=int, default=256)
     parser.add_argument("--scales", nargs="+", type=float, default=[1.0])
     parser.add_argument(
+        "--ensemble-weights",
+        nargs="+",
+        type=float,
+        default=None,
+        help="Optional model-level weights for --checkpoints; length must match checkpoint count",
+    )
+    parser.add_argument(
+        "--per-class-ensemble-weights",
+        type=str,
+        default=None,
+        help="Optional JSON file with per-class ensemble weights for --checkpoints",
+    )
+    parser.add_argument(
         "--val-scenes",
         nargs="+",
         default=["urban", "rural"],
@@ -43,11 +57,72 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     args = parser.parse_args(argv)
     if args.checkpoints is not None and args.variant is not None:
         parser.error("--variant can only be used with --checkpoint; ensemble checkpoints use their saved variants")
+    if args.ensemble_weights is not None and args.per_class_ensemble_weights is not None:
+        parser.error("Use either --ensemble-weights or --per-class-ensemble-weights, not both")
+    if args.ensemble_weights is not None:
+        if args.checkpoints is None:
+            parser.error("--ensemble-weights requires --checkpoints")
+        if len(args.ensemble_weights) != len(args.checkpoints):
+            parser.error("--ensemble-weights length must match the number of checkpoints")
+        if any(not math.isfinite(weight) for weight in args.ensemble_weights):
+            parser.error("--ensemble-weights must be finite")
+        if any(weight < 0 for weight in args.ensemble_weights):
+            parser.error("--ensemble-weights must be non-negative")
+        if sum(args.ensemble_weights) <= 0:
+            parser.error("--ensemble-weights must have a positive sum")
+    if args.per_class_ensemble_weights is not None and args.checkpoints is None:
+        parser.error("--per-class-ensemble-weights requires --checkpoints")
     return args
 
 
 def checkpoint_paths_from_args(args: argparse.Namespace) -> list[str]:
     return args.checkpoints if args.checkpoints is not None else [args.checkpoint]
+
+
+def load_per_class_ensemble_weights(
+    path: str | Path,
+    *,
+    num_checkpoints: int,
+    class_names: dict[int, str] = CLASS_NAMES,
+    ignore_index: int = IGNORE_INDEX,
+) -> torch.Tensor:
+    """Load a [num_classes, num_checkpoints] per-class ensemble weight matrix."""
+    weight_path = Path(path)
+    with weight_path.open("r", encoding="utf-8") as f:
+        payload = json.load(f)
+    if not isinstance(payload, dict):
+        raise ValueError("per-class ensemble weights JSON must contain an object")
+
+    expected = {
+        name: class_id
+        for class_id, name in class_names.items()
+        if class_id != ignore_index
+    }
+    unknown_names = sorted(set(payload) - set(expected))
+    if unknown_names:
+        raise ValueError(f"Unknown class names in per-class ensemble weights: {unknown_names}")
+    missing_names = sorted(set(expected) - set(payload))
+    if missing_names:
+        raise ValueError(f"Missing class names in per-class ensemble weights: {missing_names}")
+
+    weights = torch.ones(len(class_names), num_checkpoints, dtype=torch.float32)
+    for class_name, class_id in expected.items():
+        raw_values = payload[class_name]
+        if not isinstance(raw_values, list):
+            raise ValueError(f"Per-class weights for {class_name!r} must be a list")
+        if len(raw_values) != num_checkpoints:
+            raise ValueError(
+                f"Per-class weights for {class_name!r} must have length {num_checkpoints}"
+            )
+        class_weights = torch.as_tensor(raw_values, dtype=torch.float32)
+        if not bool(torch.isfinite(class_weights).all()):
+            raise ValueError(f"Per-class weights for {class_name!r} must be finite")
+        if bool((class_weights < 0).any()):
+            raise ValueError(f"Per-class weights for {class_name!r} must be non-negative")
+        if float(class_weights.sum().item()) <= 0.0:
+            raise ValueError(f"Per-class weights for {class_name!r} must have a positive sum")
+        weights[class_id] = class_weights
+    return weights
 
 
 def main() -> None:
@@ -80,10 +155,21 @@ def main() -> None:
         )
         predictors.append(SegformerInferenceWrapper(model))
 
+    per_class_weights = None
+    if args.per_class_ensemble_weights is not None:
+        per_class_weights = load_per_class_ensemble_weights(
+            args.per_class_ensemble_weights,
+            num_checkpoints=len(checkpoint_paths),
+        )
+
     predictor = (
         predictors[0]
         if len(predictors) == 1
-        else SegformerEnsembleInferenceWrapper(predictors)
+        else SegformerEnsembleInferenceWrapper(
+            predictors,
+            weights=args.ensemble_weights,
+            per_class_weights=per_class_weights,
+        )
     )
     meter = SegmentationMeter(num_classes=len(CLASS_NAMES), ignore_index=IGNORE_INDEX, class_names=CLASS_NAMES)
 
@@ -147,6 +233,10 @@ def main() -> None:
         "window_size": args.window_size,
         "stride": args.stride,
         "scales": args.scales,
+        "ensemble_weights": args.ensemble_weights,
+        "per_class_ensemble_weights": str(Path(args.per_class_ensemble_weights))
+        if args.per_class_ensemble_weights is not None
+        else None,
     }
     with (output_dir / "eval_summary.json").open("w", encoding="utf-8") as f:
         json.dump(report, f, indent=2)

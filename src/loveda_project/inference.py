@@ -90,25 +90,109 @@ def output_from_probabilities(probabilities: torch.Tensor) -> SegformerInference
     )
 
 
-def average_probability_maps(probability_maps: Sequence[torch.Tensor]) -> torch.Tensor:
+def _validate_probability_maps(probability_maps: Sequence[torch.Tensor]) -> tuple[list[torch.Tensor], torch.Size]:
     if not probability_maps:
         raise ValueError("probability_maps must contain at least one tensor")
 
-    reference = probability_maps[0]
+    maps = list(probability_maps)
+    reference = maps[0]
     if reference.ndim != 4:
         raise ValueError("probability maps must have shape [B, C, H, W]")
 
     reference_shape = reference.shape
     reference_num_classes = reference_shape[1]
-    for probabilities in probability_maps:
+    for probabilities in maps:
         if probabilities.ndim != 4:
             raise ValueError("probability maps must have shape [B, C, H, W]")
         if probabilities.shape[1] != reference_num_classes:
             raise ValueError("All probability maps must have the same class dimension")
         if probabilities.shape != reference_shape:
             raise ValueError("All probability maps must have the same shape")
+    return maps, reference_shape
 
-    return _normalize_probabilities(torch.stack(list(probability_maps), dim=0).mean(dim=0))
+
+def _weights_tensor(
+    weights: Sequence[float] | torch.Tensor,
+    *,
+    num_maps: int,
+    device: torch.device,
+    dtype: torch.dtype,
+) -> torch.Tensor:
+    weights_tensor = torch.as_tensor(weights, device=device, dtype=dtype)
+    if weights_tensor.ndim != 1:
+        raise ValueError("ensemble weights must be a 1D sequence")
+    if weights_tensor.numel() != num_maps:
+        raise ValueError("ensemble weights length must match the number of probability maps")
+    if not bool(torch.isfinite(weights_tensor).all()):
+        raise ValueError("ensemble weights must be finite")
+    if bool((weights_tensor < 0).any()):
+        raise ValueError("ensemble weights must be non-negative")
+    if float(weights_tensor.sum().item()) <= 0.0:
+        raise ValueError("ensemble weights must have a positive sum")
+    return weights_tensor
+
+
+def _per_class_weights_tensor(
+    per_class_weights: Sequence[Sequence[float]] | torch.Tensor,
+    *,
+    num_classes: int,
+    num_maps: int,
+    device: torch.device,
+    dtype: torch.dtype,
+) -> torch.Tensor:
+    weights_tensor = torch.as_tensor(per_class_weights, device=device, dtype=dtype)
+    if weights_tensor.ndim != 2:
+        raise ValueError("per-class ensemble weights must have shape [C, N]")
+    if tuple(weights_tensor.shape) != (num_classes, num_maps):
+        raise ValueError("per-class ensemble weights must have shape [num_classes, num_probability_maps]")
+    if not bool(torch.isfinite(weights_tensor).all()):
+        raise ValueError("per-class ensemble weights must be finite")
+    if bool((weights_tensor < 0).any()):
+        raise ValueError("per-class ensemble weights must be non-negative")
+    if bool((weights_tensor.sum(dim=1) <= 0).any()):
+        raise ValueError("each class in per-class ensemble weights must have a positive weight sum")
+    return weights_tensor
+
+
+def average_probability_maps(
+    probability_maps: Sequence[torch.Tensor],
+    weights: Sequence[float] | torch.Tensor | None = None,
+    per_class_weights: Sequence[Sequence[float]] | torch.Tensor | None = None,
+) -> torch.Tensor:
+    """Average probability maps with optional model-level or per-class weights."""
+    if weights is not None and per_class_weights is not None:
+        raise ValueError("Use either ensemble weights or per-class ensemble weights, not both")
+
+    maps, reference_shape = _validate_probability_maps(probability_maps)
+    num_maps = len(maps)
+    num_classes = reference_shape[1]
+    stacked = torch.stack(maps, dim=0)
+
+    if weights is not None:
+        weights_tensor = _weights_tensor(
+            weights,
+            num_maps=num_maps,
+            device=stacked.device,
+            dtype=stacked.dtype,
+        )
+        weighted = stacked * weights_tensor.view(num_maps, 1, 1, 1, 1)
+        probabilities = weighted.sum(dim=0) / weights_tensor.sum().clamp_min(1e-12)
+        return _normalize_probabilities(probabilities)
+
+    if per_class_weights is not None:
+        weights_tensor = _per_class_weights_tensor(
+            per_class_weights,
+            num_classes=num_classes,
+            num_maps=num_maps,
+            device=stacked.device,
+            dtype=stacked.dtype,
+        )
+        weighted = stacked * weights_tensor.T.view(num_maps, 1, num_classes, 1, 1)
+        class_weight_sum = weights_tensor.sum(dim=1).view(1, num_classes, 1, 1).clamp_min(1e-12)
+        probabilities = weighted.sum(dim=0) / class_weight_sum
+        return _normalize_probabilities(probabilities)
+
+    return _normalize_probabilities(stacked.mean(dim=0))
 
 
 class SegformerInferenceWrapper:
@@ -292,14 +376,47 @@ class SegformerInferenceWrapper:
 class SegformerEnsembleInferenceWrapper:
     """Average probability predictions from multiple frozen SegFormer predictors."""
 
-    def __init__(self, predictors: Sequence[SegformerInferenceWrapper]) -> None:
+    def __init__(
+        self,
+        predictors: Sequence[SegformerInferenceWrapper],
+        weights: Sequence[float] | torch.Tensor | None = None,
+        per_class_weights: Sequence[Sequence[float]] | torch.Tensor | None = None,
+    ) -> None:
         if not predictors:
             raise ValueError("predictors must contain at least one predictor")
+        if weights is not None and per_class_weights is not None:
+            raise ValueError("Use either ensemble weights or per-class ensemble weights, not both")
+        if weights is not None:
+            # Validate the number of predictors early; dtype/device validation happens
+            # again on the output tensors so CPU/GPU inputs both work.
+            _weights_tensor(
+                weights,
+                num_maps=len(predictors),
+                device=torch.device("cpu"),
+                dtype=torch.float32,
+            )
+        if per_class_weights is not None:
+            per_class_weights_tensor = torch.as_tensor(per_class_weights, dtype=torch.float32)
+            if per_class_weights_tensor.ndim != 2:
+                raise ValueError("per-class ensemble weights must have shape [C, N]")
+            if per_class_weights_tensor.shape[1] != len(predictors):
+                raise ValueError("per-class ensemble weights must have one column per predictor")
+            if not bool(torch.isfinite(per_class_weights_tensor).all()):
+                raise ValueError("per-class ensemble weights must be finite")
+            if bool((per_class_weights_tensor < 0).any()):
+                raise ValueError("per-class ensemble weights must be non-negative")
+            if bool((per_class_weights_tensor.sum(dim=1) <= 0).any()):
+                raise ValueError("each class in per-class ensemble weights must have a positive weight sum")
         self.predictors = list(predictors)
+        self.weights = weights
+        self.per_class_weights = per_class_weights
 
-    @staticmethod
-    def _output_from_members(outputs: Sequence[SegformerInferenceOutput]) -> SegformerInferenceOutput:
-        probabilities = average_probability_maps([output.probabilities for output in outputs])
+    def _output_from_members(self, outputs: Sequence[SegformerInferenceOutput]) -> SegformerInferenceOutput:
+        probabilities = average_probability_maps(
+            [output.probabilities for output in outputs],
+            weights=self.weights,
+            per_class_weights=self.per_class_weights,
+        )
         return output_from_probabilities(probabilities)
 
     @torch.no_grad()
