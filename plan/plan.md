@@ -140,7 +140,7 @@ Learning-Traversability-Maps-from-Overhead-Imagery-for-Drone-Routing/
 │   ├── losses.py                  # ✅ DONE — CE, CE+Dice, focal, Lovasz, CE+Dice+Lovasz, class weights
 │   ├── metrics.py                 # ✅ DONE — mIoU, per-class IoU, CM saver
 │   ├── filename_utils.py          # ✅ DONE
-│   ├── inference.py               # ✅ DONE — frozen checkpoint inference, entropy, sliding/TTA, weighted checkpoint ensemble aggregation
+│   ├── inference.py               # ✅ DONE — frozen checkpoint inference, entropy, sliding/TTA, weighted + true logit-mean checkpoint ensemble aggregation
 │   ├── costmap.py                 # 🔲 PR 09/15 — semantic→cost + uncertainty variants
 │   ├── uncertainty.py             # 🔲 PR 15 — entropy helper
 │   ├── route_metrics.py           # 🔲 PR 12 — path success, excess cost, violation rate
@@ -152,7 +152,7 @@ Learning-Traversability-Maps-from-Overhead-Imagery-for-Drone-Routing/
 │   ├── day1_day2_setup.py         # ✅ DONE — data download + histogram + sample viz
 │   ├── train_segformer.py         # ✅ DONE — training entry point, supports warmup+cosine, AMP, W&B, weighted/focal/Lovasz losses, aug presets, grad accumulation, class-aware crop
 │   ├── compute_class_stats.py     # ✅ PR 03 — train pixel counts for class-balanced losses
-│   ├── eval_segformer.py          # ✅ DONE — frozen checkpoint eval + sliding-window/TTA + weighted checkpoint ensemble eval
+│   ├── eval_segformer.py          # ✅ DONE — frozen checkpoint eval + sliding-window/TTA + weighted/logit-mean checkpoint ensemble eval
 │   ├── run_segmentation_sweep.py  # 🔲 PR 07 — release ablation sweep
 │   ├── verify_segmentation_release.py # 🔲 PR 08 — 57.3 mIoU gate
 │   ├── visualize_costmap.py       # 🔲 PR 09 — cost-map sanity figures
@@ -178,6 +178,7 @@ Learning-Traversability-Maps-from-Overhead-Imagery-for-Drone-Routing/
 │   ├── test_class_aware_crop.py   # ✅ PR 06c — rare-class crop tests
 │   ├── test_lovasz_loss.py        # ✅ PR 06d — Lovasz / CE+Lovasz loss tests
 │   ├── test_weighted_ensemble_eval.py # ✅ PR 06g — weighted/per-class ensemble tests
+│   ├── test_logit_mean_ensemble_eval.py # ✅ PR 06h — true logit-mean ensemble aggregation tests
 │   ├── test_costmap.py            # 🔲 PR 09 — planned
 │   ├── test_astar.py              # 🔲 PR 10 — planned
 │   └── ...                        # one file per PR, mostly synthetic/hand-built inputs
@@ -208,7 +209,7 @@ Learning-Traversability-Maps-from-Overhead-Imagery-for-Drone-Routing/
 - **Training loop** (`scripts/train_segformer.py`): AMP, 3 scheduler modes (`none`, `cosine-only`, `warmup+cosine`, stepped per-optimizer-step), W&B logging, class-stats-driven weighted/focal losses, PR06d `--loss-name {lovasz,ce_lovasz}` with `--lovasz-weight`, PR06f `--loss-name ce_dice_lovasz`, `--aug-preset {basic,strong}`, `--grad-accum-steps`, PR06c `--class-aware-crop`, best-mIoU checkpoint + normalized confusion-matrix PNG.
 - **Class stats** (`scripts/compute_class_stats.py`): scans LoveDA train masks and writes per-class pixel counts for class-balanced losses.
 - **Metrics** (`src/loveda_project/metrics.py`): `SegmentationMeter` confusion-matrix-based mIoU / per-class IoU / pixel accuracy, plus confusion-matrix plot and metrics-JSON savers.
-- **Frozen inference** (`src/loveda_project/inference.py`, `scripts/eval_segformer.py`): reusable no-grad SegFormer prediction API returning upsampled logits, probabilities, masks, and entropy, plus Gaussian-weighted sliding-window / multi-scale probability aggregation, equal checkpoint ensembles, model-weighted checkpoint ensembles, and per-class weighted checkpoint ensembles for eval.
+- **Frozen inference** (`src/loveda_project/inference.py`, `scripts/eval_segformer.py`): reusable no-grad SegFormer prediction API returning upsampled logits, probabilities, masks, and entropy, plus Gaussian-weighted sliding-window / multi-scale probability aggregation, raw-logit sliding / multi-scale aggregation for true logit-mean eval, equal checkpoint ensembles, model-weighted checkpoint ensembles, and per-class weighted checkpoint ensembles.
 - **Test bootstrap** (`tests/`): pytest import smoke test plus synthetic regression tests for `EnsureTensorTypes`, Dice/Lovasz ignore handling, `SegmentationMeter`, SegFormer B0/B1/B2 construction, TTA/ensemble eval, and class-aware crop sampling. Verified with `conda run -n loveda env PYTHONPATH=src python -m pytest tests`.
 
 ### 📊 Best recorded performance (urban + rural combined)
@@ -423,7 +424,7 @@ Failure panels should show the RGB image, GT mask, predicted mask, predicted cos
 
 ## 8. Revised PR Roadmap / 重新制定 PR 路線圖
 
-**Current codebase state**: the repository already has a working LoveDA data pipeline, paired transforms with basic/strong augmentation presets and rare-class-aware crop sampling, SegFormer B0/B1/B2/B3/B4/B5 construction, CE/CE+Dice/focal/Lovasz/CE+Dice+Lovasz losses, class-balanced loss weighting, segmentation metrics, `scripts/train_segformer.py` with gradient accumulation, class-aware crop CLI, and Lovasz CLI, the PR 01 pytest bootstrap, the PR 02 frozen inference/eval wrapper, the PR 03 class-stats helper, PR 06 sliding-window / multi-scale TTA evaluation, PR 06b checkpoint-ensemble evaluation, and PR 06g weighted/per-class checkpoint-ensemble evaluation. It does **not** yet have semantic-to-cost conversion, planners, route metrics, routing scripts, segmentation sweep tooling, or release-gate tooling.
+**Current codebase state**: the repository already has a working LoveDA data pipeline, paired transforms with basic/strong augmentation presets and rare-class-aware crop sampling, SegFormer B0/B1/B2/B3/B4/B5 construction, CE/CE+Dice/focal/Lovasz/CE+Dice+Lovasz losses, class-balanced loss weighting, segmentation metrics, `scripts/train_segformer.py` with gradient accumulation, class-aware crop CLI, and Lovasz CLI, the PR 01 pytest bootstrap, the PR 02 frozen inference/eval wrapper, the PR 03 class-stats helper, PR 06 sliding-window / multi-scale TTA evaluation, PR 06b checkpoint-ensemble evaluation, PR 06g weighted/per-class checkpoint-ensemble evaluation, and PR 06h true logit-mean checkpoint-ensemble aggregation. It does **not** yet have semantic-to-cost conversion, planners, route metrics, routing scripts, segmentation sweep tooling, or release-gate tooling.
 
 **Main project goal**: produce an auditable perception-to-routing study:
 
@@ -684,7 +685,7 @@ PYTHONPATH=src python scripts/eval_segformer.py \
   - Ensemble prediction averages probabilities across checkpoints with equal weight:
     `P_ensemble = mean(P_checkpoint_1, ..., P_checkpoint_N)`.
   - Do **not** average hard masks; hard voting discards confidence.
-  - Do **not** average raw logits; logits are not calibrated across checkpoints.
+  - PR06b itself uses probability mean. PR06h adds raw-logit mean as a separate, explicit calibration ablation, so both paths remain reproducible.
   - Final mask is `argmax(P_ensemble)`.
   - Ensemble entropy is computed from `P_ensemble`, not by averaging per-model entropies.
 - **Recommended first ensemble**:
@@ -1126,7 +1127,6 @@ P_final(c, y, x) =
   - If both `--ensemble-weights` and `--per-class-ensemble-weights` are passed, fail with a clear error to avoid ambiguous behavior.
   - Keep final prediction as `argmax(P_final)`.
   - Compute entropy from `P_final`, not by averaging per-checkpoint entropy.
-  - Optional extension in the same PR, if implementation stays small: add `--ensemble-aggregation {prob-mean,logit-mean}`. Default remains `prob-mean`. `logit-mean` averages logits before softmax and must support the same model-level/per-class weighting rules only if logits are returned at matching spatial resolution.
 - **Files**:
   - `src/loveda_project/inference.py`
   - `scripts/eval_segformer.py`
@@ -1146,7 +1146,6 @@ P_final(c, y, x) =
   - Missing non-ignore class entries in the per-class JSON are rejected, unless the implementation intentionally defaults missing classes to equal weights; whichever behavior is chosen must be tested.
   - Passing both `--ensemble-weights` and `--per-class-ensemble-weights` is rejected.
   - CLI parsing accepts valid model-level weights and a valid per-class JSON path.
-  - If `--ensemble-aggregation logit-mean` is implemented, add a toy test proving logit averaging happens before softmax and does not silently fall back to probability averaging.
 - **Pytest command**:
 
 ```bash
@@ -1212,6 +1211,154 @@ PYTHONPATH=src python scripts/eval_segformer.py \
   - Keep PR06g in the release recipe if either model-level or per-class weights improve combined validation mIoU without a severe `road` or `barren` regression.
   - If manual weights do not beat `0.5581`, keep the implementation for reproducible ablations but move to the next high-value option: EMA training or flip/rotation TTA.
 - **Suggested commit**: `feat: add weighted checkpoint ensemble evaluation`
+
+### PR 06h — True Logit-Mean Checkpoint Ensemble Aggregation
+
+- **Status**: ✅ Done.
+- **Goal**: Add a true raw-logit checkpoint ensemble mode:
+
+```text
+P_final = softmax(weighted_mean(raw_logits_i))
+```
+
+  This PR must not implement a log-probability approximation and call it logit mean.
+- **Motivation**:
+  - PR06g pushed the current best weighted per-class ensemble to approximately `mean_iou = 0.5602`, but manual weight tuning from v3 -> v5 is nearly saturated.
+  - The release ensemble mixes checkpoints trained with different recipes: B1/B2/B3, CE+Dice, focal, CE+Lovasz, CE+Dice+Lovasz, inverse/median/effective weights, basic/strong augmentation, and class-aware crop.
+  - These checkpoints can have different softmax calibration. A model that is overconfident or underconfident can distort probability averaging even when its argmax structure is useful.
+  - True logit mean combines model evidence before the ensemble softmax, matching the intended C2 ablation:
+
+```text
+prob-mean:  mean(softmax(logits_i))
+logit-mean: softmax(mean(logits_i))
+```
+
+  - This is the correct experiment for testing whether calibration differences across checkpoints are hurting the current probability-mean ensemble.
+- **Behavior**:
+  - Keep current behavior as the default:
+
+```bash
+--ensemble-aggregation prob-mean
+```
+
+  - Add a new CLI option:
+
+```bash
+--ensemble-aggregation logit-mean
+```
+
+  - `prob-mean` keeps the PR06b/PR06g formula:
+
+```text
+P_final(c, y, x) =
+  sum_i w_i(c) * P_i(c, y, x) / sum_i w_i(c)
+```
+
+  - `logit-mean` must use full-resolution raw logits from each checkpoint:
+
+```text
+L_final(c, y, x) =
+  sum_i w_i(c) * L_i(c, y, x) / sum_i w_i(c)
+
+P_final(c, y, x) =
+  softmax_c(L_final(:, y, x))
+```
+
+  - Support both PR06g weight modes:
+    - model-level `--ensemble-weights`;
+    - per-class `--per-class-ensemble-weights`.
+  - For model-level weights:
+
+```text
+L_final = sum_i w_i * L_i / sum_i w_i
+```
+
+  - For per-class weights:
+
+```text
+L_final(c) = sum_i W[c, i] * L_i(c) / sum_i W[c, i]
+```
+
+  - Add raw-logit versions of the TTA paths used by eval:
+    - single pass: already has `_forward_logits(..., target_size=...)`;
+    - sliding window: add a Gaussian-weighted **logit** accumulator parallel to the existing probability accumulator;
+    - multi-scale sliding: run the raw-logit sliding path per scale, upsample logits back to original tile size, then average logits across scales before softmax.
+  - Preserve current probability TTA path for `prob-mean`; do not silently change existing results.
+  - Single-checkpoint eval should continue to work. If `--ensemble-aggregation logit-mean` is passed with one checkpoint, it should use the raw-logit path and then softmax; for a single checkpoint this should match ordinary prediction up to numerical tolerance.
+  - Entropy must always be computed from the final aggregated `P_final`.
+  - `output.logits` for `logit-mean` must be the final aggregated raw-logit tensor `L_final`; downstream metrics still use `output.probabilities`.
+- **Important design notes**:
+  - This PR is intentionally more invasive than a log-prob shortcut because the point is to test true C2.
+  - Logits are not invariant to arbitrary per-model additive constants, so this is an empirical ablation, not a guaranteed improvement. That is acceptable; the command output decides whether it enters the release recipe.
+  - Do not remove `prob-mean`; it is the current best baseline and must remain reproducible.
+- **Files**:
+  - `src/loveda_project/inference.py`
+  - `scripts/eval_segformer.py`
+  - `tests/test_logit_mean_ensemble_eval.py`
+  - `plan/plan.md`
+- **Tests**:
+  - `prob-mean` remains the default and exactly matches the current weighted probability average.
+  - `logit-mean` on two synthetic logit tensors matches `softmax(weighted_mean(logits))`, and is explicitly different from `mean(softmax(logits))` on a toy case where those differ.
+  - `logit-mean` with model-level `--ensemble-weights` matches a hand-computed weighted raw-logit average followed by softmax.
+  - `logit-mean` with per-class weights matches a hand-computed per-class weighted raw-logit average followed by softmax.
+  - Sliding-window logit aggregation uses the same deterministic window starts and Gaussian weights as probability sliding, but accumulates logits before softmax.
+  - A single-window/small-tile `predict_sliding(..., aggregation="logit-mean")` matches single-pass raw-logit prediction.
+  - Multi-scale logit TTA preserves `[B, C, H, W]` logits/probabilities and averages logits after resizing each scale back to original tile size.
+  - Single-checkpoint `--ensemble-aggregation logit-mean` produces the same mask/probability as ordinary single-checkpoint eval on a synthetic model.
+  - Output probabilities sum to 1 over classes for every pixel.
+  - Output mask is `argmax(P_final)`.
+  - Output entropy is computed from the final aggregated probabilities.
+  - Existing PR06g validation still applies: incompatible shapes/classes, negative weights, non-finite weights, and zero-sum weights are rejected.
+  - CLI parsing accepts `--ensemble-aggregation prob-mean` and `--ensemble-aggregation logit-mean`.
+  - CLI parsing rejects unknown aggregation modes.
+  - Existing `tests/test_ensemble_eval.py` and `tests/test_weighted_ensemble_eval.py` must still pass unchanged.
+- **Pytest command**:
+
+```bash
+PYTHONPATH=src python -m pytest tests/test_logit_mean_ensemble_eval.py tests/test_weighted_ensemble_eval.py tests/test_ensemble_eval.py -q
+```
+
+- **Full regression command**:
+
+```bash
+PYTHONPATH=src python -m pytest tests/ -q
+```
+
+- **Recommended first usage: true logit-mean with current best v5 weights**:
+
+```bash
+PYTHONPATH=src python scripts/eval_segformer.py \
+  --checkpoints \
+    outputs/seg_release/pr05_b2_cedice_inverse_basic_aug/checkpoints/best_model.pth \
+    outputs/seg_release/pr05_b2_focal_median_basic_aug/checkpoints/best_model.pth \
+    outputs/seg_release/pr04_b1_cedice_inverse_strong_aug/checkpoints/best_model.pth \
+    outputs/seg_release/pr06c_b2_cedice_inverse_classaware_crop/checkpoints/best_model.pth \
+    outputs/seg_release/pr06d_b2_celovasz_inverse_classaware_crop/checkpoints/best_model.pth \
+    outputs/seg_release/pr06f_b3_cedice_lovasz_inverse_strong_p1024/checkpoints/best_model.pth \
+    outputs/seg_release/pr06f_b3_cedice_lovasz_effective_strong_p1024/checkpoints/best_model.pth \
+  --per-class-ensemble-weights configs/segmentation/ensemble_weights/pr06g_manual_v5_forest.json \
+  --ensemble-aggregation logit-mean \
+  --root ./data \
+  --output-dir outputs/seg_release/pr06h_logitmean_perclass_v5_sliding_s1_eval \
+  --patch-size 1024 \
+  --batch-size 1 \
+  --tta sliding \
+  --window-size 512 \
+  --stride 256 \
+  --scales 1.0
+```
+
+- **Recommended ablation commands after implementation**:
+  - Same 7 checkpoints + `--ensemble-aggregation logit-mean` + equal weights.
+  - Same 7 checkpoints + `--ensemble-aggregation logit-mean` + PR06g v3 weights.
+  - Same 7 checkpoints + `--ensemble-aggregation logit-mean` + PR06g v5 weights.
+- **Decision rule**:
+  - Compare against current best:
+    `outputs/seg_release/pr06g_weighted_perclass_manual_v5_forest_sliding_s1_eval`
+    with `mean_iou ~= 0.5602`.
+  - Keep `logit-mean` in the release recipe if it improves mIoU or improves `barren` / `forest` without reducing overall mIoU.
+  - If `logit-mean` is flat or worse across equal/v3/v5 weights, stop this eval trick and move to EMA training or flip/rotation TTA.
+- **Suggested commit**: `feat: add true logit-mean checkpoint ensemble aggregation`
 
 ### PR 07 — Config-Driven Segmentation Sweep
 
@@ -1557,6 +1704,7 @@ PYTHONPATH=src python scripts/verify_final_artifacts.py \
 | 06d | ✅ Done | Lovasz / CE+Lovasz loss | Optimizes a differentiable IoU surrogate for mIoU gains | `test_lovasz_loss.py` |
 | 06f | ✅ Done | B3/B4/B5 + CE+Dice+Lovasz | Enables Tier-A backbone capacity ablation | `test_modeling.py`, `test_lovasz_loss.py` |
 | 06g | ✅ Done | Weighted/per-class checkpoint ensemble | Uses complementary class strengths from existing checkpoints | `test_weighted_ensemble_eval.py` |
+| 06h | ✅ Done | True logit-mean ensemble aggregation | Tests pre-softmax fusion across diverse checkpoints | `test_logit_mean_ensemble_eval.py` |
 | 07 | 🔲 Not started | Segmentation sweep | Makes mIoU ablations reproducible | `test_segmentation_sweep.py` |
 | 08 | 🔲 Not started | Release gate | Prevents unsupported 57.3 mIoU claims | `test_segmentation_release_gate.py` |
 | 09 | 🔲 Not started | Semantic-to-cost | Bridges perception to planning representation | `test_costmap.py` |

@@ -9,6 +9,8 @@ import torch.nn.functional as F
 
 from loveda_project.modeling import SegformerBuildConfig, build_segformer_model
 
+ENSEMBLE_AGGREGATIONS = {"prob-mean", "logit-mean"}
+
 
 @dataclass
 class SegformerInferenceOutput:
@@ -90,6 +92,27 @@ def output_from_probabilities(probabilities: torch.Tensor) -> SegformerInference
     )
 
 
+def output_from_logits(logits: torch.Tensor) -> SegformerInferenceOutput:
+    if logits.ndim != 4:
+        raise ValueError("logits must have shape [B, C, H, W]")
+    probabilities = torch.softmax(logits, dim=1)
+    masks = torch.argmax(probabilities, dim=1)
+    entropy = semantic_entropy(probabilities)
+    return SegformerInferenceOutput(
+        logits=logits,
+        probabilities=probabilities,
+        masks=masks,
+        entropy=entropy,
+    )
+
+
+def validate_ensemble_aggregation(aggregation: str) -> str:
+    if aggregation not in ENSEMBLE_AGGREGATIONS:
+        valid = ", ".join(sorted(ENSEMBLE_AGGREGATIONS))
+        raise ValueError(f"Unsupported ensemble aggregation: {aggregation}. Expected one of: {valid}")
+    return aggregation
+
+
 def _validate_probability_maps(probability_maps: Sequence[torch.Tensor]) -> tuple[list[torch.Tensor], torch.Size]:
     if not probability_maps:
         raise ValueError("probability_maps must contain at least one tensor")
@@ -108,6 +131,27 @@ def _validate_probability_maps(probability_maps: Sequence[torch.Tensor]) -> tupl
             raise ValueError("All probability maps must have the same class dimension")
         if probabilities.shape != reference_shape:
             raise ValueError("All probability maps must have the same shape")
+    return maps, reference_shape
+
+
+def _validate_logit_maps(logit_maps: Sequence[torch.Tensor]) -> tuple[list[torch.Tensor], torch.Size]:
+    if not logit_maps:
+        raise ValueError("logit_maps must contain at least one tensor")
+
+    maps = list(logit_maps)
+    reference = maps[0]
+    if reference.ndim != 4:
+        raise ValueError("logit maps must have shape [B, C, H, W]")
+
+    reference_shape = reference.shape
+    reference_num_classes = reference_shape[1]
+    for logits in maps:
+        if logits.ndim != 4:
+            raise ValueError("logit maps must have shape [B, C, H, W]")
+        if logits.shape[1] != reference_num_classes:
+            raise ValueError("All logit maps must have the same class dimension")
+        if logits.shape != reference_shape:
+            raise ValueError("All logit maps must have the same shape")
     return maps, reference_shape
 
 
@@ -195,6 +239,45 @@ def average_probability_maps(
     return _normalize_probabilities(stacked.mean(dim=0))
 
 
+def average_logit_maps(
+    logit_maps: Sequence[torch.Tensor],
+    weights: Sequence[float] | torch.Tensor | None = None,
+    per_class_weights: Sequence[Sequence[float]] | torch.Tensor | None = None,
+) -> torch.Tensor:
+    """Average raw logit maps with optional model-level or per-class weights."""
+    if weights is not None and per_class_weights is not None:
+        raise ValueError("Use either ensemble weights or per-class ensemble weights, not both")
+
+    maps, reference_shape = _validate_logit_maps(logit_maps)
+    num_maps = len(maps)
+    num_classes = reference_shape[1]
+    stacked = torch.stack(maps, dim=0)
+
+    if weights is not None:
+        weights_tensor = _weights_tensor(
+            weights,
+            num_maps=num_maps,
+            device=stacked.device,
+            dtype=stacked.dtype,
+        )
+        weighted = stacked * weights_tensor.view(num_maps, 1, 1, 1, 1)
+        return weighted.sum(dim=0) / weights_tensor.sum().clamp_min(1e-12)
+
+    if per_class_weights is not None:
+        weights_tensor = _per_class_weights_tensor(
+            per_class_weights,
+            num_classes=num_classes,
+            num_maps=num_maps,
+            device=stacked.device,
+            dtype=stacked.dtype,
+        )
+        weighted = stacked * weights_tensor.T.view(num_maps, 1, num_classes, 1, 1)
+        class_weight_sum = weights_tensor.sum(dim=1).view(1, num_classes, 1, 1).clamp_min(1e-12)
+        return weighted.sum(dim=0) / class_weight_sum
+
+    return stacked.mean(dim=0)
+
+
 class SegformerInferenceWrapper:
     """Frozen SegFormer predictor returning upsampled dense outputs."""
 
@@ -216,6 +299,10 @@ class SegformerInferenceWrapper:
     @staticmethod
     def _output_from_probabilities(probabilities: torch.Tensor) -> SegformerInferenceOutput:
         return output_from_probabilities(probabilities)
+
+    @staticmethod
+    def _output_from_logits(logits: torch.Tensor) -> SegformerInferenceOutput:
+        return output_from_logits(logits)
 
     @torch.no_grad()
     def predict(
@@ -301,16 +388,85 @@ class SegformerInferenceWrapper:
 
         return _normalize_probabilities(probability_sum / weight_sum.clamp_min(1e-12))
 
+    def _sliding_window_logits(
+        self,
+        pixel_values: torch.Tensor,
+        window_size: int,
+        stride: int,
+    ) -> torch.Tensor:
+        if pixel_values.ndim != 4:
+            raise ValueError("pixel_values must have shape [B, C, H, W]")
+        if window_size <= 0:
+            raise ValueError("window_size must be positive")
+        if stride <= 0:
+            raise ValueError("stride must be positive")
+
+        _, _, height, width = pixel_values.shape
+        if height <= window_size and width <= window_size:
+            return self._forward_logits(pixel_values=pixel_values, target_size=(height, width))
+
+        y_starts = sliding_window_start_positions(height, window_size, stride)
+        x_starts = sliding_window_start_positions(width, window_size, stride)
+        sigma = window_size / 4.0
+
+        logit_sum: torch.Tensor | None = None
+        weight_sum: torch.Tensor | None = None
+
+        for top in y_starts:
+            bottom = min(top + window_size, height)
+            for left in x_starts:
+                right = min(left + window_size, width)
+                crop = pixel_values[:, :, top:bottom, left:right]
+                crop_h, crop_w = crop.shape[-2:]
+                crop_logits = self._forward_logits(pixel_values=crop, target_size=(crop_h, crop_w))
+
+                if logit_sum is None:
+                    batch_size, num_classes = crop_logits.shape[:2]
+                    logit_sum = torch.zeros(
+                        (batch_size, num_classes, height, width),
+                        device=crop_logits.device,
+                        dtype=crop_logits.dtype,
+                    )
+                    weight_sum = torch.zeros(
+                        (batch_size, 1, height, width),
+                        device=crop_logits.device,
+                        dtype=crop_logits.dtype,
+                    )
+
+                weights = build_gaussian_weight_mask(
+                    crop_h,
+                    crop_w,
+                    sigma=sigma,
+                    device=crop_logits.device,
+                    dtype=crop_logits.dtype,
+                )
+                logit_sum[:, :, top:bottom, left:right] += crop_logits * weights
+                weight_sum[:, :, top:bottom, left:right] += weights
+
+        if logit_sum is None or weight_sum is None:
+            raise RuntimeError("sliding-window inference produced no windows")
+
+        return logit_sum / weight_sum.clamp_min(1e-12)
+
     @torch.no_grad()
     def predict_sliding(
         self,
         pixel_values: torch.Tensor,
         window_size: int,
         stride: int,
+        aggregation: str = "prob-mean",
     ) -> SegformerInferenceOutput:
+        validate_ensemble_aggregation(aggregation)
         was_training = self.model.training
         self.model.eval()
         try:
+            if aggregation == "logit-mean":
+                logits = self._sliding_window_logits(
+                    pixel_values=pixel_values,
+                    window_size=window_size,
+                    stride=stride,
+                )
+                return self._output_from_logits(logits)
             probabilities = self._sliding_window_probabilities(
                 pixel_values=pixel_values,
                 window_size=window_size,
@@ -327,7 +483,9 @@ class SegformerInferenceWrapper:
         window_size: int,
         stride: int,
         scales: Sequence[float],
+        aggregation: str = "prob-mean",
     ) -> SegformerInferenceOutput:
+        validate_ensemble_aggregation(aggregation)
         if not scales:
             raise ValueError("scales must contain at least one value")
         if any(scale <= 0 for scale in scales):
@@ -337,6 +495,40 @@ class SegformerInferenceWrapper:
         self.model.eval()
         try:
             original_size = tuple(pixel_values.shape[-2:])
+            if aggregation == "logit-mean":
+                scaled_logits = []
+                for scale in scales:
+                    if scale == 1.0:
+                        scaled_pixels = pixel_values
+                    else:
+                        scaled_size = (
+                            max(1, int(round(original_size[0] * scale))),
+                            max(1, int(round(original_size[1] * scale))),
+                        )
+                        scaled_pixels = F.interpolate(
+                            pixel_values,
+                            size=scaled_size,
+                            mode="bilinear",
+                            align_corners=False,
+                        )
+
+                    logits = self._sliding_window_logits(
+                        pixel_values=scaled_pixels,
+                        window_size=window_size,
+                        stride=stride,
+                    )
+                    if logits.shape[-2:] != original_size:
+                        logits = F.interpolate(
+                            logits,
+                            size=original_size,
+                            mode="bilinear",
+                            align_corners=False,
+                        )
+                    scaled_logits.append(logits)
+
+                logits = torch.stack(scaled_logits, dim=0).mean(dim=0)
+                return self._output_from_logits(logits)
+
             scaled_probabilities = []
             for scale in scales:
                 if scale == 1.0:
@@ -374,16 +566,18 @@ class SegformerInferenceWrapper:
 
 
 class SegformerEnsembleInferenceWrapper:
-    """Average probability predictions from multiple frozen SegFormer predictors."""
+    """Aggregate predictions from multiple frozen SegFormer predictors."""
 
     def __init__(
         self,
         predictors: Sequence[SegformerInferenceWrapper],
         weights: Sequence[float] | torch.Tensor | None = None,
         per_class_weights: Sequence[Sequence[float]] | torch.Tensor | None = None,
+        aggregation: str = "prob-mean",
     ) -> None:
         if not predictors:
             raise ValueError("predictors must contain at least one predictor")
+        validate_ensemble_aggregation(aggregation)
         if weights is not None and per_class_weights is not None:
             raise ValueError("Use either ensemble weights or per-class ensemble weights, not both")
         if weights is not None:
@@ -410,8 +604,22 @@ class SegformerEnsembleInferenceWrapper:
         self.predictors = list(predictors)
         self.weights = weights
         self.per_class_weights = per_class_weights
+        self.aggregation = aggregation
 
-    def _output_from_members(self, outputs: Sequence[SegformerInferenceOutput]) -> SegformerInferenceOutput:
+    def _output_from_members(
+        self,
+        outputs: Sequence[SegformerInferenceOutput],
+        aggregation: str | None = None,
+    ) -> SegformerInferenceOutput:
+        aggregation = self.aggregation if aggregation is None else validate_ensemble_aggregation(aggregation)
+        if aggregation == "logit-mean":
+            logits = average_logit_maps(
+                [output.logits for output in outputs],
+                weights=self.weights,
+                per_class_weights=self.per_class_weights,
+            )
+            return output_from_logits(logits)
+
         probabilities = average_probability_maps(
             [output.probabilities for output in outputs],
             weights=self.weights,
@@ -437,16 +645,19 @@ class SegformerEnsembleInferenceWrapper:
         pixel_values: torch.Tensor,
         window_size: int,
         stride: int,
+        aggregation: str | None = None,
     ) -> SegformerInferenceOutput:
+        aggregation = self.aggregation if aggregation is None else validate_ensemble_aggregation(aggregation)
         outputs = [
             predictor.predict_sliding(
                 pixel_values=pixel_values,
                 window_size=window_size,
                 stride=stride,
+                aggregation=aggregation,
             )
             for predictor in self.predictors
         ]
-        return self._output_from_members(outputs)
+        return self._output_from_members(outputs, aggregation=aggregation)
 
     @torch.no_grad()
     def predict_multiscale_sliding(
@@ -455,17 +666,20 @@ class SegformerEnsembleInferenceWrapper:
         window_size: int,
         stride: int,
         scales: Sequence[float],
+        aggregation: str | None = None,
     ) -> SegformerInferenceOutput:
+        aggregation = self.aggregation if aggregation is None else validate_ensemble_aggregation(aggregation)
         outputs = [
             predictor.predict_multiscale_sliding(
                 pixel_values=pixel_values,
                 window_size=window_size,
                 stride=stride,
                 scales=scales,
+                aggregation=aggregation,
             )
             for predictor in self.predictors
         ]
-        return self._output_from_members(outputs)
+        return self._output_from_members(outputs, aggregation=aggregation)
 
 
 def predict_segformer(

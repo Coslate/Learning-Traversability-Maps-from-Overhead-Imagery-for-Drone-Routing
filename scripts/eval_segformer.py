@@ -10,6 +10,7 @@ from tqdm import tqdm
 
 from loveda_project.data import CLASS_NAMES, IGNORE_INDEX, LoveDAConfig, build_dataloaders
 from loveda_project.inference import (
+    ENSEMBLE_AGGREGATIONS,
     SegformerEnsembleInferenceWrapper,
     SegformerInferenceWrapper,
     load_segformer_from_checkpoint,
@@ -35,6 +36,13 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--window-size", type=int, default=512)
     parser.add_argument("--stride", type=int, default=256)
     parser.add_argument("--scales", nargs="+", type=float, default=[1.0])
+    parser.add_argument(
+        "--ensemble-aggregation",
+        type=str,
+        default="prob-mean",
+        choices=sorted(ENSEMBLE_AGGREGATIONS),
+        help="How to aggregate checkpoint ensembles: probability mean or true raw-logit mean",
+    )
     parser.add_argument(
         "--ensemble-weights",
         nargs="+",
@@ -169,6 +177,7 @@ def main() -> None:
             predictors,
             weights=args.ensemble_weights,
             per_class_weights=per_class_weights,
+            aggregation=args.ensemble_aggregation,
         )
     )
     meter = SegmentationMeter(num_classes=len(CLASS_NAMES), ignore_index=IGNORE_INDEX, class_names=CLASS_NAMES)
@@ -193,6 +202,7 @@ def main() -> None:
                 window_size=args.window_size,
                 stride=args.stride,
                 scales=args.scales,
+                aggregation=args.ensemble_aggregation,
             )
         else:
             outputs = predictor.predict(pixel_values=images, target_size=masks.shape[-2:])
@@ -233,6 +243,7 @@ def main() -> None:
         "window_size": args.window_size,
         "stride": args.stride,
         "scales": args.scales,
+        "ensemble_aggregation": args.ensemble_aggregation,
         "ensemble_weights": args.ensemble_weights,
         "per_class_ensemble_weights": str(Path(args.per_class_ensemble_weights))
         if args.per_class_ensemble_weights is not None
