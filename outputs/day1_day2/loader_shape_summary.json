@@ -1,0 +1,24 @@
+{
+  "train_batch_image_shape": [
+    4,
+    3,
+    512,
+    512
+  ],
+  "train_batch_mask_shape": [
+    4,
+    512,
+    512
+  ],
+  "val_batch_image_shape": [
+    4,
+    3,
+    512,
+    512
+  ],
+  "val_batch_mask_shape": [
+    4,
+    512,
+    512
+  ]
+}

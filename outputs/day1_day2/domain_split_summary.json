@@ -1,0 +1,12 @@
+{
+  "train": {
+    "rural": 1366,
+    "urban": 1156,
+    "total": 2522
+  },
+  "val": {
+    "rural": 992,
+    "urban": 677,
+    "total": 1669
+  }
+}

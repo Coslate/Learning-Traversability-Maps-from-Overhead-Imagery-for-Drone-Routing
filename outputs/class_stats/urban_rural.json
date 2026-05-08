@@ -1,0 +1,18 @@
+{
+  "split": "train",
+  "scenes": [
+    "urban",
+    "rural"
+  ],
+  "num_samples_counted": 2522,
+  "counts": {
+    "ignore": 99632059,
+    "background": 910708330,
+    "building": 281493525,
+    "road": 134119839,
+    "water": 162729743,
+    "barren": 132748857,
+    "forest": 409074984,
+    "agriculture": 514001335
+  }
+}

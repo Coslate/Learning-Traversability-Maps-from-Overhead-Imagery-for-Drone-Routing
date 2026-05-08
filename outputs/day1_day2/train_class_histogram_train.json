@@ -1,0 +1,23 @@
+{
+  "counts": {
+    "ignore": 17088779,
+    "background": 228515122,
+    "building": 71573940,
+    "road": 33979068,
+    "water": 42720957,
+    "barren": 33870964,
+    "forest": 102883013,
+    "agriculture": 130495325
+  },
+  "proportions_excluding_ignore": {
+    "ignore": 0.0,
+    "background": 0.35481599529310043,
+    "building": 0.11113303371734258,
+    "road": 0.052759382950384966,
+    "water": 0.06633293562877973,
+    "barren": 0.05259152960212749,
+    "forest": 0.1597467088254579,
+    "agriculture": 0.20262041398280686
+  },
+  "num_samples_counted": 2522
+}
