@@ -11,9 +11,11 @@ from tqdm import tqdm
 from loveda_project.data import CLASS_NAMES, IGNORE_INDEX, LoveDAConfig, build_dataloaders
 from loveda_project.inference import (
     ENSEMBLE_AGGREGATIONS,
+    GEOMETRIC_TTA_MODES,
     SegformerEnsembleInferenceWrapper,
     SegformerInferenceWrapper,
     load_segformer_from_checkpoint,
+    predict_with_geometric_tta,
 )
 from loveda_project.metrics import MetricSummary, SegmentationMeter, save_confusion_matrix_plot, save_metrics_json
 from loveda_project.modeling import SEGFORMER_VARIANTS
@@ -33,6 +35,13 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--max-samples", type=int, default=None)
     parser.add_argument("--device", type=str, default="cuda" if torch.cuda.is_available() else "cpu")
     parser.add_argument("--tta", type=str, default="none", choices=["none", "sliding"])
+    parser.add_argument(
+        "--geometric-tta",
+        type=str,
+        default="none",
+        choices=sorted(GEOMETRIC_TTA_MODES),
+        help="Optional flip/rotation test-time augmentation over image orientations",
+    )
     parser.add_argument("--window-size", type=int, default=512)
     parser.add_argument("--stride", type=int, default=256)
     parser.add_argument("--scales", nargs="+", type=float, default=[1.0])
@@ -196,16 +205,17 @@ def main() -> None:
             images = images[:remaining]
             masks = masks[:remaining]
 
-        if args.tta == "sliding":
-            outputs = predictor.predict_multiscale_sliding(
-                pixel_values=images,
-                window_size=args.window_size,
-                stride=args.stride,
-                scales=args.scales,
-                aggregation=args.ensemble_aggregation,
-            )
-        else:
-            outputs = predictor.predict(pixel_values=images, target_size=masks.shape[-2:])
+        outputs = predict_with_geometric_tta(
+            predictor,
+            pixel_values=images,
+            geometric_tta=args.geometric_tta,
+            inference_mode=args.tta,
+            target_size=masks.shape[-2:],
+            window_size=args.window_size,
+            stride=args.stride,
+            scales=args.scales,
+            aggregation=args.ensemble_aggregation,
+        )
         meter.update(outputs.probabilities, masks)
         entropy_sum += float(outputs.entropy.sum().item())
         entropy_count += int(outputs.entropy.numel())
@@ -240,6 +250,7 @@ def main() -> None:
         "per_class_iou": summary.per_class_iou,
         "mean_entropy": entropy_sum / max(entropy_count, 1),
         "tta": args.tta,
+        "geometric_tta": args.geometric_tta,
         "window_size": args.window_size,
         "stride": args.stride,
         "scales": args.scales,

@@ -10,6 +10,14 @@ import torch.nn.functional as F
 from loveda_project.modeling import SegformerBuildConfig, build_segformer_model
 
 ENSEMBLE_AGGREGATIONS = {"prob-mean", "logit-mean"}
+GEOMETRIC_TTA_MODES = {"none", "hflip", "hvflip", "rot90", "d4"}
+
+
+@dataclass(frozen=True)
+class GeometricTTAView:
+    name: str
+    rotation_k: int = 0
+    hflip: bool = False
 
 
 @dataclass
@@ -111,6 +119,81 @@ def validate_ensemble_aggregation(aggregation: str) -> str:
         valid = ", ".join(sorted(ENSEMBLE_AGGREGATIONS))
         raise ValueError(f"Unsupported ensemble aggregation: {aggregation}. Expected one of: {valid}")
     return aggregation
+
+
+def validate_geometric_tta_mode(mode: str) -> str:
+    if mode not in GEOMETRIC_TTA_MODES:
+        valid = ", ".join(sorted(GEOMETRIC_TTA_MODES))
+        raise ValueError(f"Unsupported geometric TTA mode: {mode}. Expected one of: {valid}")
+    return mode
+
+
+def geometric_tta_views(mode: str) -> list[GeometricTTAView]:
+    mode = validate_geometric_tta_mode(mode)
+    identity = GeometricTTAView("identity", rotation_k=0, hflip=False)
+    if mode == "none":
+        return [identity]
+    if mode == "hflip":
+        return [
+            identity,
+            GeometricTTAView("hflip", rotation_k=0, hflip=True),
+        ]
+    if mode == "hvflip":
+        return [
+            identity,
+            GeometricTTAView("hflip", rotation_k=0, hflip=True),
+            GeometricTTAView("vflip", rotation_k=2, hflip=True),
+            GeometricTTAView("hvflip", rotation_k=2, hflip=False),
+        ]
+    if mode == "rot90":
+        return [
+            GeometricTTAView("rot0", rotation_k=0, hflip=False),
+            GeometricTTAView("rot90", rotation_k=1, hflip=False),
+            GeometricTTAView("rot180", rotation_k=2, hflip=False),
+            GeometricTTAView("rot270", rotation_k=3, hflip=False),
+        ]
+    if mode == "d4":
+        return [
+            GeometricTTAView(f"rot{rotation_k * 90}", rotation_k=rotation_k, hflip=False)
+            for rotation_k in range(4)
+        ] + [
+            GeometricTTAView(f"rot{rotation_k * 90}_hflip", rotation_k=rotation_k, hflip=True)
+            for rotation_k in range(4)
+        ]
+    raise AssertionError(f"Unhandled geometric TTA mode: {mode}")
+
+
+def apply_geometric_tta_view(tensor: torch.Tensor, view: GeometricTTAView) -> torch.Tensor:
+    """Apply one geometric TTA view to a dense [*, H, W] tensor."""
+    if tensor.ndim < 2:
+        raise ValueError("geometric TTA tensors must have at least two spatial dimensions")
+    output = tensor
+    rotation_k = view.rotation_k % 4
+    if rotation_k:
+        output = torch.rot90(output, k=rotation_k, dims=(-2, -1))
+    if view.hflip:
+        output = torch.flip(output, dims=(-1,))
+    return output
+
+
+def invert_geometric_tta_view(tensor: torch.Tensor, view: GeometricTTAView) -> torch.Tensor:
+    """Invert one geometric TTA view from prediction orientation back to source orientation."""
+    if tensor.ndim < 2:
+        raise ValueError("geometric TTA tensors must have at least two spatial dimensions")
+    output = tensor
+    if view.hflip:
+        output = torch.flip(output, dims=(-1,))
+    rotation_k = view.rotation_k % 4
+    if rotation_k:
+        output = torch.rot90(output, k=-rotation_k, dims=(-2, -1))
+    return output
+
+
+def _geometric_view_size(size: Sequence[int] | torch.Size, view: GeometricTTAView) -> tuple[int, int]:
+    height, width = tuple(size)
+    if view.rotation_k % 2:
+        return (width, height)
+    return (height, width)
 
 
 def _validate_probability_maps(probability_maps: Sequence[torch.Tensor]) -> tuple[list[torch.Tensor], torch.Size]:
@@ -680,6 +763,102 @@ class SegformerEnsembleInferenceWrapper:
             for predictor in self.predictors
         ]
         return self._output_from_members(outputs, aggregation=aggregation)
+
+
+def _predict_inference_path(
+    predictor,
+    *,
+    pixel_values: torch.Tensor,
+    inference_mode: str,
+    target_size: Sequence[int] | torch.Size | None,
+    window_size: int,
+    stride: int,
+    scales: Sequence[float],
+    aggregation: str,
+) -> SegformerInferenceOutput:
+    if inference_mode == "none":
+        return predictor.predict(pixel_values=pixel_values, target_size=target_size)
+    if inference_mode == "sliding":
+        return predictor.predict_multiscale_sliding(
+            pixel_values=pixel_values,
+            window_size=window_size,
+            stride=stride,
+            scales=scales,
+            aggregation=aggregation,
+        )
+    raise ValueError("inference_mode must be 'none' or 'sliding'")
+
+
+@torch.no_grad()
+def predict_with_geometric_tta(
+    predictor,
+    *,
+    pixel_values: torch.Tensor,
+    geometric_tta: str = "none",
+    inference_mode: str = "none",
+    target_size: Sequence[int] | torch.Size | None = None,
+    window_size: int = 512,
+    stride: int = 256,
+    scales: Sequence[float] = (1.0,),
+    aggregation: str = "prob-mean",
+) -> SegformerInferenceOutput:
+    """Run optional flip/rotation TTA around an existing SegFormer predictor."""
+    validate_geometric_tta_mode(geometric_tta)
+    validate_ensemble_aggregation(aggregation)
+    if pixel_values.ndim != 4:
+        raise ValueError("pixel_values must have shape [B, C, H, W]")
+    if inference_mode not in {"none", "sliding"}:
+        raise ValueError("inference_mode must be 'none' or 'sliding'")
+
+    original_size = tuple(target_size) if target_size is not None else tuple(pixel_values.shape[-2:])
+    views = geometric_tta_views(geometric_tta)
+    if geometric_tta == "none":
+        return _predict_inference_path(
+            predictor,
+            pixel_values=pixel_values,
+            inference_mode=inference_mode,
+            target_size=target_size,
+            window_size=window_size,
+            stride=stride,
+            scales=scales,
+            aggregation=aggregation,
+        )
+
+    probability_maps: list[torch.Tensor] = []
+    logit_maps: list[torch.Tensor] = []
+    for view in views:
+        view_pixels = apply_geometric_tta_view(pixel_values, view)
+        view_target_size = _geometric_view_size(original_size, view) if inference_mode == "none" else None
+        view_output = _predict_inference_path(
+            predictor,
+            pixel_values=view_pixels,
+            inference_mode=inference_mode,
+            target_size=view_target_size,
+            window_size=window_size,
+            stride=stride,
+            scales=scales,
+            aggregation=aggregation,
+        )
+
+        if aggregation == "logit-mean":
+            logits = invert_geometric_tta_view(view_output.logits, view)
+            if logits.shape[-2:] != original_size:
+                logits = F.interpolate(logits, size=original_size, mode="bilinear", align_corners=False)
+            logit_maps.append(logits)
+        else:
+            probabilities = invert_geometric_tta_view(view_output.probabilities, view)
+            if probabilities.shape[-2:] != original_size:
+                probabilities = F.interpolate(
+                    probabilities,
+                    size=original_size,
+                    mode="bilinear",
+                    align_corners=False,
+                )
+            probability_maps.append(_normalize_probabilities(probabilities))
+
+    if aggregation == "logit-mean":
+        return output_from_logits(average_logit_maps(logit_maps))
+    return output_from_probabilities(average_probability_maps(probability_maps))
 
 
 def predict_segformer(

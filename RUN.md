@@ -943,3 +943,44 @@ PYTHONPATH=src python scripts/eval_segformer.py \
   --window-size 512 \
   --stride 256 \
   --scales 1.0
+
+PYTHONPATH=src python scripts/eval_segformer.py \
+  --checkpoints \
+    outputs/seg_release/pr05_b2_cedice_inverse_basic_aug/checkpoints/best_model.pth \
+    outputs/seg_release/pr05_b2_focal_median_basic_aug/checkpoints/best_model.pth \
+    outputs/seg_release/pr04_b1_cedice_inverse_strong_aug/checkpoints/best_model.pth \
+    outputs/seg_release/pr06c_b2_cedice_inverse_classaware_crop/checkpoints/best_model.pth \
+    outputs/seg_release/pr06d_b2_celovasz_inverse_classaware_crop/checkpoints/best_model.pth \
+    outputs/seg_release/pr06f_b3_cedice_lovasz_inverse_strong_p1024/checkpoints/best_model.pth \
+    outputs/seg_release/pr06f_b3_cedice_lovasz_effective_strong_p1024/checkpoints/best_model.pth \
+  --per-class-ensemble-weights configs/segmentation/ensemble_weights/pr06g_manual_v5_forest.json \
+  --ensemble-aggregation logit-mean \
+  --root ./data \
+  --output-dir outputs/seg_release/pr06h_logitmean_perclass_v5_sliding_s1_eval \
+  --patch-size 1024 \
+  --batch-size 1 \
+  --tta sliding \
+  --window-size 512 \
+  --stride 256 \
+  --scales 1.0
+
+PYTHONPATH=src python scripts/eval_segformer.py \
+  --checkpoints \
+    outputs/seg_release/pr05_b2_cedice_inverse_basic_aug/checkpoints/best_model.pth \
+    outputs/seg_release/pr05_b2_focal_median_basic_aug/checkpoints/best_model.pth \
+    outputs/seg_release/pr04_b1_cedice_inverse_strong_aug/checkpoints/best_model.pth \
+    outputs/seg_release/pr06c_b2_cedice_inverse_classaware_crop/checkpoints/best_model.pth \
+    outputs/seg_release/pr06d_b2_celovasz_inverse_classaware_crop/checkpoints/best_model.pth \
+    outputs/seg_release/pr06f_b3_cedice_lovasz_inverse_strong_p1024/checkpoints/best_model.pth \
+    outputs/seg_release/pr06f_b3_cedice_lovasz_effective_strong_p1024/checkpoints/best_model.pth \
+  --per-class-ensemble-weights configs/segmentation/ensemble_weights/pr06g_manual_v5_forest.json \
+  --ensemble-aggregation prob-mean \
+  --root ./data \
+  --output-dir outputs/seg_release/pr06i_perclass_v5_hflip_sliding_s1_eval \
+  --patch-size 1024 \
+  --batch-size 1 \
+  --tta sliding \
+  --geometric-tta hflip \
+  --window-size 512 \
+  --stride 256 \
+  --scales 1.0

@@ -140,7 +140,7 @@ Learning-Traversability-Maps-from-Overhead-Imagery-for-Drone-Routing/
 │   ├── losses.py                  # ✅ DONE — CE, CE+Dice, focal, Lovasz, CE+Dice+Lovasz, class weights
 │   ├── metrics.py                 # ✅ DONE — mIoU, per-class IoU, CM saver
 │   ├── filename_utils.py          # ✅ DONE
-│   ├── inference.py               # ✅ DONE — frozen checkpoint inference, entropy, sliding/TTA, weighted + true logit-mean checkpoint ensemble aggregation
+│   ├── inference.py               # ✅ DONE — frozen checkpoint inference, entropy, sliding/geometric TTA, weighted + true logit-mean checkpoint ensemble aggregation
 │   ├── costmap.py                 # 🔲 PR 09/15 — semantic→cost + uncertainty variants
 │   ├── uncertainty.py             # 🔲 PR 15 — entropy helper
 │   ├── route_metrics.py           # 🔲 PR 12 — path success, excess cost, violation rate
@@ -152,7 +152,7 @@ Learning-Traversability-Maps-from-Overhead-Imagery-for-Drone-Routing/
 │   ├── day1_day2_setup.py         # ✅ DONE — data download + histogram + sample viz
 │   ├── train_segformer.py         # ✅ DONE — training entry point, supports warmup+cosine, AMP, W&B, weighted/focal/Lovasz losses, aug presets, grad accumulation, class-aware crop
 │   ├── compute_class_stats.py     # ✅ PR 03 — train pixel counts for class-balanced losses
-│   ├── eval_segformer.py          # ✅ DONE — frozen checkpoint eval + sliding-window/TTA + weighted/logit-mean checkpoint ensemble eval
+│   ├── eval_segformer.py          # ✅ DONE — frozen checkpoint eval + sliding-window/geometric TTA + weighted/logit-mean checkpoint ensemble eval
 │   ├── run_segmentation_sweep.py  # 🔲 PR 07 — release ablation sweep
 │   ├── verify_segmentation_release.py # 🔲 PR 08 — 57.3 mIoU gate
 │   ├── visualize_costmap.py       # 🔲 PR 09 — cost-map sanity figures
@@ -179,6 +179,7 @@ Learning-Traversability-Maps-from-Overhead-Imagery-for-Drone-Routing/
 │   ├── test_lovasz_loss.py        # ✅ PR 06d — Lovasz / CE+Lovasz loss tests
 │   ├── test_weighted_ensemble_eval.py # ✅ PR 06g — weighted/per-class ensemble tests
 │   ├── test_logit_mean_ensemble_eval.py # ✅ PR 06h — true logit-mean ensemble aggregation tests
+│   ├── test_geometric_tta_eval.py # ✅ PR 06i — flip/rotation TTA tests
 │   ├── test_costmap.py            # 🔲 PR 09 — planned
 │   ├── test_astar.py              # 🔲 PR 10 — planned
 │   └── ...                        # one file per PR, mostly synthetic/hand-built inputs
@@ -209,7 +210,7 @@ Learning-Traversability-Maps-from-Overhead-Imagery-for-Drone-Routing/
 - **Training loop** (`scripts/train_segformer.py`): AMP, 3 scheduler modes (`none`, `cosine-only`, `warmup+cosine`, stepped per-optimizer-step), W&B logging, class-stats-driven weighted/focal losses, PR06d `--loss-name {lovasz,ce_lovasz}` with `--lovasz-weight`, PR06f `--loss-name ce_dice_lovasz`, `--aug-preset {basic,strong}`, `--grad-accum-steps`, PR06c `--class-aware-crop`, best-mIoU checkpoint + normalized confusion-matrix PNG.
 - **Class stats** (`scripts/compute_class_stats.py`): scans LoveDA train masks and writes per-class pixel counts for class-balanced losses.
 - **Metrics** (`src/loveda_project/metrics.py`): `SegmentationMeter` confusion-matrix-based mIoU / per-class IoU / pixel accuracy, plus confusion-matrix plot and metrics-JSON savers.
-- **Frozen inference** (`src/loveda_project/inference.py`, `scripts/eval_segformer.py`): reusable no-grad SegFormer prediction API returning upsampled logits, probabilities, masks, and entropy, plus Gaussian-weighted sliding-window / multi-scale probability aggregation, raw-logit sliding / multi-scale aggregation for true logit-mean eval, equal checkpoint ensembles, model-weighted checkpoint ensembles, and per-class weighted checkpoint ensembles.
+- **Frozen inference** (`src/loveda_project/inference.py`, `scripts/eval_segformer.py`): reusable no-grad SegFormer prediction API returning upsampled logits, probabilities, masks, and entropy, plus Gaussian-weighted sliding-window / multi-scale probability aggregation, flip/rotation geometric TTA, raw-logit sliding / multi-scale aggregation for true logit-mean eval, equal checkpoint ensembles, model-weighted checkpoint ensembles, and per-class weighted checkpoint ensembles.
 - **Test bootstrap** (`tests/`): pytest import smoke test plus synthetic regression tests for `EnsureTensorTypes`, Dice/Lovasz ignore handling, `SegmentationMeter`, SegFormer B0/B1/B2 construction, TTA/ensemble eval, and class-aware crop sampling. Verified with `conda run -n loveda env PYTHONPATH=src python -m pytest tests`.
 
 ### 📊 Best recorded performance (urban + rural combined)
@@ -424,7 +425,7 @@ Failure panels should show the RGB image, GT mask, predicted mask, predicted cos
 
 ## 8. Revised PR Roadmap / 重新制定 PR 路線圖
 
-**Current codebase state**: the repository already has a working LoveDA data pipeline, paired transforms with basic/strong augmentation presets and rare-class-aware crop sampling, SegFormer B0/B1/B2/B3/B4/B5 construction, CE/CE+Dice/focal/Lovasz/CE+Dice+Lovasz losses, class-balanced loss weighting, segmentation metrics, `scripts/train_segformer.py` with gradient accumulation, class-aware crop CLI, and Lovasz CLI, the PR 01 pytest bootstrap, the PR 02 frozen inference/eval wrapper, the PR 03 class-stats helper, PR 06 sliding-window / multi-scale TTA evaluation, PR 06b checkpoint-ensemble evaluation, PR 06g weighted/per-class checkpoint-ensemble evaluation, and PR 06h true logit-mean checkpoint-ensemble aggregation. It does **not** yet have semantic-to-cost conversion, planners, route metrics, routing scripts, segmentation sweep tooling, or release-gate tooling.
+**Current codebase state**: the repository already has a working LoveDA data pipeline, paired transforms with basic/strong augmentation presets and rare-class-aware crop sampling, SegFormer B0/B1/B2/B3/B4/B5 construction, CE/CE+Dice/focal/Lovasz/CE+Dice+Lovasz losses, class-balanced loss weighting, segmentation metrics, `scripts/train_segformer.py` with gradient accumulation, class-aware crop CLI, and Lovasz CLI, the PR 01 pytest bootstrap, the PR 02 frozen inference/eval wrapper, the PR 03 class-stats helper, PR 06 sliding-window / multi-scale TTA evaluation, PR 06b checkpoint-ensemble evaluation, PR 06g weighted/per-class checkpoint-ensemble evaluation, PR 06h true logit-mean checkpoint-ensemble aggregation, and PR 06i flip/rotation geometric TTA evaluation. It does **not** yet have semantic-to-cost conversion, planners, route metrics, routing scripts, segmentation sweep tooling, or release-gate tooling.
 
 **Main project goal**: produce an auditable perception-to-routing study:
 
@@ -1360,6 +1361,171 @@ PYTHONPATH=src python scripts/eval_segformer.py \
   - If `logit-mean` is flat or worse across equal/v3/v5 weights, stop this eval trick and move to EMA training or flip/rotation TTA.
 - **Suggested commit**: `feat: add true logit-mean checkpoint ensemble aggregation`
 
+### PR 06i — Flip / Rotation Geometric TTA Evaluation
+
+- **Status**: ✅ Done.
+- **Goal**: Add eval-time geometric test-time augmentation over image orientations:
+
+```text
+P_final = mean_t(invert_t(Predict(transform_t(image))))
+```
+
+  where `t` is a flip or rotation view, and `invert_t(...)` maps the prediction back to the original tile orientation before averaging.
+- **Why now**:
+  - Current best remains PR06g v5 `prob-mean` at approximately `mean_iou = 0.5602`.
+  - PR06h true logit-mean did not beat the current best (`~0.5597`), so calibration-space tricks are not the next best bet.
+  - LoveDA is overhead imagery: roads, fields, barren land, forests, and water should be mostly invariant to image flips and 90-degree rotations. A checkpoint can still be slightly orientation-biased because training crops and augmentations are finite.
+  - Geometric TTA is eval-only and uses existing checkpoints, so it is cheaper than EMA/B4/B5 retraining. It is the last reasonable no-retrain mIoU ablation before moving back to training-side changes.
+- **Scope**:
+  - Keep existing `--tta {none,sliding}` behavior. In this codebase, `--tta sliding` means the crop/window inference path.
+  - Add a separate CLI option for orientation views:
+
+```bash
+--geometric-tta none
+--geometric-tta hflip
+--geometric-tta hvflip
+--geometric-tta rot90
+--geometric-tta d4
+```
+
+  - Recommended mode definitions:
+    - `none`: identity only.
+    - `hflip`: identity + horizontal flip.
+    - `hvflip`: identity + horizontal flip + vertical flip + horizontal+vertical flip.
+    - `rot90`: rotations `0, 90, 180, 270`.
+    - `d4`: full 8-view dihedral TTA: rotations `0, 90, 180, 270`, plus horizontal flip after each rotation.
+  - Default must be `none` so all previous eval results remain reproducible.
+- **Aggregation behavior**:
+  - Each geometric view runs the same underlying predictor path:
+    - single checkpoint or checkpoint ensemble;
+    - ordinary full-tile eval or PR06 sliding/multi-scale eval;
+    - PR06g model/per-class ensemble weights;
+    - PR06h `prob-mean` or `logit-mean` checkpoint aggregation.
+  - After prediction, invert every view's dense output back to original `[B, C, H, W]` orientation.
+  - For the current recommended release recipe, average probabilities across geometric views:
+
+```text
+P_final(c, y, x) =
+  mean_t(P_t_in_original_orientation(c, y, x))
+```
+
+  - If `--ensemble-aggregation logit-mean` is used, geometric TTA should average logits across views and softmax once:
+
+```text
+L_final(c, y, x) =
+  mean_t(L_t_in_original_orientation(c, y, x))
+
+P_final = softmax(L_final)
+```
+
+  - Entropy is computed from the final aggregated probabilities, not by averaging per-view entropy.
+  - Final mask remains `argmax(P_final)`.
+- **Files**:
+  - `src/loveda_project/inference.py`
+    - Add deterministic geometric view definitions and inverse transforms.
+    - Add a geometric TTA helper that wraps existing `predict`, `predict_sliding`, and `predict_multiscale_sliding` paths without duplicating model-loading logic.
+  - `scripts/eval_segformer.py`
+    - Add `--geometric-tta`.
+    - Record `geometric_tta` in `eval_summary.json`.
+  - `tests/test_geometric_tta_eval.py`
+  - `plan/plan.md`
+- **Tests**:
+  - Mode parsing:
+    - CLI default is `--geometric-tta none`.
+    - CLI accepts `none`, `hflip`, `hvflip`, `rot90`, and `d4`.
+    - CLI rejects unknown modes.
+  - Transform correctness:
+    - Every view followed by its inverse restores a hand-built non-symmetric tensor to the original orientation.
+    - Rotation views preserve final output shape for rectangular inputs after inverse transform.
+    - `d4` expands to exactly 8 deterministic views and includes identity.
+  - Prediction behavior:
+    - `geometric-tta none` matches the base predictor exactly.
+    - `hflip` TTA on a synthetic orientation-sensitive predictor equals a hand-computed average of original prediction and inverted-flip prediction.
+    - `rot90` TTA on a synthetic predictor returns probabilities/logits shaped `[B, C, H, W]` after all inverse rotations.
+    - Probability-mode TTA averages probabilities and recomputes mask/entropy from the final average.
+    - Logit-mode TTA averages logits before softmax and is explicitly different from probability averaging on a toy case where they differ.
+    - Geometric TTA works when the underlying path is ordinary full-tile eval.
+    - Geometric TTA works when the underlying path is sliding-window eval; a fake predictor should prove `window_size`, `stride`, and `scales` are passed through unchanged.
+    - Geometric TTA works with checkpoint ensembles and preserves PR06g model-level/per-class weighting behavior.
+  - Regression:
+    - Existing `tests/test_tta.py`, `tests/test_ensemble_eval.py`, `tests/test_weighted_ensemble_eval.py`, and `tests/test_logit_mean_ensemble_eval.py` still pass unchanged.
+- **Pytest command**:
+
+```bash
+PYTHONPATH=src python -m pytest \
+  tests/test_geometric_tta_eval.py \
+  tests/test_tta.py \
+  tests/test_ensemble_eval.py \
+  tests/test_weighted_ensemble_eval.py \
+  tests/test_logit_mean_ensemble_eval.py \
+  -q
+```
+
+- **Full regression command**:
+
+```bash
+PYTHONPATH=src python -m pytest tests/ -q
+```
+
+- **Recommended first usage: cheap horizontal flip TTA on current best recipe**:
+
+```bash
+PYTHONPATH=src python scripts/eval_segformer.py \
+  --checkpoints \
+    outputs/seg_release/pr05_b2_cedice_inverse_basic_aug/checkpoints/best_model.pth \
+    outputs/seg_release/pr05_b2_focal_median_basic_aug/checkpoints/best_model.pth \
+    outputs/seg_release/pr04_b1_cedice_inverse_strong_aug/checkpoints/best_model.pth \
+    outputs/seg_release/pr06c_b2_cedice_inverse_classaware_crop/checkpoints/best_model.pth \
+    outputs/seg_release/pr06d_b2_celovasz_inverse_classaware_crop/checkpoints/best_model.pth \
+    outputs/seg_release/pr06f_b3_cedice_lovasz_inverse_strong_p1024/checkpoints/best_model.pth \
+    outputs/seg_release/pr06f_b3_cedice_lovasz_effective_strong_p1024/checkpoints/best_model.pth \
+  --per-class-ensemble-weights configs/segmentation/ensemble_weights/pr06g_manual_v5_forest.json \
+  --ensemble-aggregation prob-mean \
+  --root ./data \
+  --output-dir outputs/seg_release/pr06i_perclass_v5_hflip_sliding_s1_eval \
+  --patch-size 1024 \
+  --batch-size 1 \
+  --tta sliding \
+  --geometric-tta hflip \
+  --window-size 512 \
+  --stride 256 \
+  --scales 1.0
+```
+
+- **Recommended second usage if hflip helps or is flat**:
+
+```bash
+PYTHONPATH=src python scripts/eval_segformer.py \
+  --checkpoints \
+    outputs/seg_release/pr05_b2_cedice_inverse_basic_aug/checkpoints/best_model.pth \
+    outputs/seg_release/pr05_b2_focal_median_basic_aug/checkpoints/best_model.pth \
+    outputs/seg_release/pr04_b1_cedice_inverse_strong_aug/checkpoints/best_model.pth \
+    outputs/seg_release/pr06c_b2_cedice_inverse_classaware_crop/checkpoints/best_model.pth \
+    outputs/seg_release/pr06d_b2_celovasz_inverse_classaware_crop/checkpoints/best_model.pth \
+    outputs/seg_release/pr06f_b3_cedice_lovasz_inverse_strong_p1024/checkpoints/best_model.pth \
+    outputs/seg_release/pr06f_b3_cedice_lovasz_effective_strong_p1024/checkpoints/best_model.pth \
+  --per-class-ensemble-weights configs/segmentation/ensemble_weights/pr06g_manual_v5_forest.json \
+  --ensemble-aggregation prob-mean \
+  --root ./data \
+  --output-dir outputs/seg_release/pr06i_perclass_v5_d4_sliding_s1_eval \
+  --patch-size 1024 \
+  --batch-size 1 \
+  --tta sliding \
+  --geometric-tta d4 \
+  --window-size 512 \
+  --stride 256 \
+  --scales 1.0
+```
+
+- **Decision rule**:
+  - Compare against current best:
+    `outputs/seg_release/pr06g_weighted_perclass_manual_v5_forest_sliding_s1_eval`
+    with `mean_iou ~= 0.5602`.
+  - Keep geometric TTA in the release recipe only if it improves combined validation mIoU or improves `barren` / `forest` without a meaningful overall mIoU drop.
+  - If `hflip`, `hvflip`, `rot90`, and `d4` are all flat or worse, stop eval-only tricks and move to PR06j EMA training.
+  - Because `d4` can be roughly 8x slower, prefer `hflip` or `hvflip` for routine release checks unless `d4` gives a clear mIoU gain.
+- **Suggested commit**: `feat: add flip and rotation tta evaluation`
+
 ### PR 07 — Config-Driven Segmentation Sweep
 
 - **Goal**: Make the mIoU improvement path auditable by recording comparable runs and a single result table. Also produce the three checkpoints (`combined`, `urban-only`, `rural-only`) needed for the domain-shift matrix.
@@ -1705,6 +1871,7 @@ PYTHONPATH=src python scripts/verify_final_artifacts.py \
 | 06f | ✅ Done | B3/B4/B5 + CE+Dice+Lovasz | Enables Tier-A backbone capacity ablation | `test_modeling.py`, `test_lovasz_loss.py` |
 | 06g | ✅ Done | Weighted/per-class checkpoint ensemble | Uses complementary class strengths from existing checkpoints | `test_weighted_ensemble_eval.py` |
 | 06h | ✅ Done | True logit-mean ensemble aggregation | Tests pre-softmax fusion across diverse checkpoints | `test_logit_mean_ensemble_eval.py` |
+| 06i | ✅ Done | Flip/rotation geometric TTA | Tests orientation-invariant eval over existing checkpoints | `test_geometric_tta_eval.py` |
 | 07 | 🔲 Not started | Segmentation sweep | Makes mIoU ablations reproducible | `test_segmentation_sweep.py` |
 | 08 | 🔲 Not started | Release gate | Prevents unsupported 57.3 mIoU claims | `test_segmentation_release_gate.py` |
 | 09 | 🔲 Not started | Semantic-to-cost | Bridges perception to planning representation | `test_costmap.py` |
