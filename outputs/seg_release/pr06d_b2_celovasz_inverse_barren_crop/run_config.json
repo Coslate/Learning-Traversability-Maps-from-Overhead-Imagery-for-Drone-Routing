@@ -1,0 +1,51 @@
+{
+  "root": "./data",
+  "output_dir": "./outputs/seg_release/pr06d_b2_celovasz_inverse_barren_crop",
+  "variant": "segformer-b2",
+  "pretrained": true,
+  "epochs": 45,
+  "batch_size": 2,
+  "grad_accum_steps": 2,
+  "num_workers": 4,
+  "patch_size": 512,
+  "aug_preset": "basic",
+  "class_aware_crop": true,
+  "crop_target_classes": [
+    "barren"
+  ],
+  "crop_min_pixels": 1024,
+  "crop_tries": 30,
+  "class_aware_crop_prob": 0.5,
+  "lr": 6e-05,
+  "scheduler_type": "warmup+cosine",
+  "min_lr": 1e-06,
+  "warmup_epochs": 5,
+  "weight_decay": 0.01,
+  "loss_name": "ce_lovasz",
+  "dice_weight": 0.25,
+  "lovasz_weight": 0.5,
+  "class_weight_mode": "inverse",
+  "class_stats": "outputs/class_stats/urban_rural.json",
+  "class_weight_beta": 0.9999,
+  "focal_gamma": 2.0,
+  "amp": true,
+  "seed": 0,
+  "device": "cuda",
+  "save_every": 0,
+  "train_scenes": [
+    "urban",
+    "rural"
+  ],
+  "val_scenes": [
+    "urban",
+    "rural"
+  ],
+  "use_wandb": true,
+  "wandb_project": "loveda-segformer",
+  "wandb_entity": null,
+  "wandb_run_name": "b2_celovasz_inverse_barren_crop_patch512",
+  "wandb_mode": "online",
+  "crop_target_class_ids": [
+    5
+  ]
+}

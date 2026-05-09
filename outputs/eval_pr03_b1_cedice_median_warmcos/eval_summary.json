@@ -1,0 +1,16 @@
+{
+  "checkpoint": "outputs/seg_release/pr03_b1_cedice_median_warmcos/checkpoints/best_model.pth",
+  "num_samples": 1669,
+  "mean_iou": 0.522702347104201,
+  "pixel_accuracy": 0.6935830082286001,
+  "per_class_iou": {
+    "background": 0.5181624135574651,
+    "building": 0.6319982314421086,
+    "road": 0.5348272694573751,
+    "water": 0.6660339710924826,
+    "barren": 0.3410198819132735,
+    "forest": 0.4352046097828456,
+    "agriculture": 0.5316700524838571
+  },
+  "mean_entropy": 0.3276392526795151
+}
