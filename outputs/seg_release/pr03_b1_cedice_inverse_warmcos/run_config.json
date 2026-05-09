@@ -1,0 +1,39 @@
+{
+  "root": "./data",
+  "output_dir": "./outputs/seg_release/pr03_b1_cedice_inverse_warmcos",
+  "variant": "segformer-b1",
+  "pretrained": true,
+  "epochs": 45,
+  "batch_size": 2,
+  "num_workers": 4,
+  "patch_size": 512,
+  "aug_preset": "basic",
+  "lr": 6e-05,
+  "scheduler_type": "warmup+cosine",
+  "min_lr": 1e-06,
+  "warmup_epochs": 5,
+  "weight_decay": 0.01,
+  "loss_name": "ce_dice",
+  "dice_weight": 0.25,
+  "class_weight_mode": "inverse",
+  "class_stats": "outputs/class_stats/urban_rural.json",
+  "class_weight_beta": 0.9999,
+  "focal_gamma": 2.0,
+  "amp": true,
+  "seed": 0,
+  "device": "cuda",
+  "save_every": 1,
+  "train_scenes": [
+    "urban",
+    "rural"
+  ],
+  "val_scenes": [
+    "urban",
+    "rural"
+  ],
+  "use_wandb": true,
+  "wandb_project": "loveda-segformer",
+  "wandb_entity": null,
+  "wandb_run_name": "b1_pt_cedice_inverse_warmcos45_patch512",
+  "wandb_mode": "online"
+}

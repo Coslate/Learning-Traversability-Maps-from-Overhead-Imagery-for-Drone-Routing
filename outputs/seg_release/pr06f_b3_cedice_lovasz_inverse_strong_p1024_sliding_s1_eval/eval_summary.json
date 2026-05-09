@@ -1,0 +1,26 @@
+{
+  "checkpoint": "outputs/seg_release/pr06f_b3_cedice_lovasz_inverse_strong_p1024/checkpoints/best_model.pth",
+  "checkpoints": [
+    "outputs/seg_release/pr06f_b3_cedice_lovasz_inverse_strong_p1024/checkpoints/best_model.pth"
+  ],
+  "ensemble_size": 1,
+  "num_samples": 1669,
+  "mean_iou": 0.5358579367356395,
+  "pixel_accuracy": 0.7136010332795008,
+  "per_class_iou": {
+    "background": 0.5071792763645444,
+    "building": 0.607113744180799,
+    "road": 0.5608244115825503,
+    "water": 0.6975107785347396,
+    "barren": 0.3402888239920198,
+    "forest": 0.41816413602553437,
+    "agriculture": 0.6199243864692885
+  },
+  "mean_entropy": 0.3810450037290694,
+  "tta": "sliding",
+  "window_size": 512,
+  "stride": 256,
+  "scales": [
+    1.0
+  ]
+}

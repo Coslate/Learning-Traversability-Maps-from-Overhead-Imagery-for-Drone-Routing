@@ -1,0 +1,26 @@
+{
+  "checkpoint": "outputs/seg_release/pr06d_b2_celovasz_inverse_barren_crop/checkpoints/best_model.pth",
+  "checkpoints": [
+    "outputs/seg_release/pr06d_b2_celovasz_inverse_barren_crop/checkpoints/best_model.pth"
+  ],
+  "ensemble_size": 1,
+  "num_samples": 1669,
+  "mean_iou": 0.5422428502706023,
+  "pixel_accuracy": 0.7120299109074328,
+  "per_class_iou": {
+    "background": 0.5401580885412152,
+    "building": 0.6521014736722259,
+    "road": 0.5671456394816388,
+    "water": 0.6905807540054276,
+    "barren": 0.37640226059908,
+    "forest": 0.4194443873167149,
+    "agriculture": 0.5498673482779136
+  },
+  "mean_entropy": 0.3396157275131608,
+  "tta": "sliding",
+  "window_size": 512,
+  "stride": 256,
+  "scales": [
+    1.0
+  ]
+}

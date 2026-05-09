@@ -1,0 +1,24 @@
+{
+  "checkpoint": "outputs/seg_release/pr05_b2_focal_median_basic_aug/checkpoints/best_model.pth",
+  "num_samples": 1669,
+  "mean_iou": 0.5365931570679863,
+  "pixel_accuracy": 0.7097114701132853,
+  "per_class_iou": {
+    "background": 0.5333735166045336,
+    "building": 0.6411064440335207,
+    "road": 0.5754879876397931,
+    "water": 0.6846808187599591,
+    "barren": 0.3179134816201827,
+    "forest": 0.45573861345096023,
+    "agriculture": 0.5478512373669542
+  },
+  "mean_entropy": 0.7177049582718089,
+  "tta": "sliding",
+  "window_size": 512,
+  "stride": 256,
+  "scales": [
+    0.75,
+    1.0,
+    1.25
+  ]
+}

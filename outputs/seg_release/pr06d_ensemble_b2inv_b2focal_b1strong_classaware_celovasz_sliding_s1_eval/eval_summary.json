@@ -1,0 +1,30 @@
+{
+  "checkpoint": null,
+  "checkpoints": [
+    "outputs/seg_release/pr05_b2_cedice_inverse_basic_aug/checkpoints/best_model.pth",
+    "outputs/seg_release/pr05_b2_focal_median_basic_aug/checkpoints/best_model.pth",
+    "outputs/seg_release/pr04_b1_cedice_inverse_strong_aug/checkpoints/best_model.pth",
+    "outputs/seg_release/pr06c_b2_cedice_inverse_classaware_crop/checkpoints/best_model.pth",
+    "outputs/seg_release/pr06d_b2_celovasz_inverse_classaware_crop/checkpoints/best_model.pth"
+  ],
+  "ensemble_size": 5,
+  "num_samples": 1669,
+  "mean_iou": 0.5495793573471094,
+  "pixel_accuracy": 0.7177819777087338,
+  "per_class_iou": {
+    "background": 0.5449036252824921,
+    "building": 0.6508354152846624,
+    "road": 0.5695136832631876,
+    "water": 0.7147050501497348,
+    "barren": 0.3650929296875275,
+    "forest": 0.4478500840067521,
+    "agriculture": 0.5541547137554094
+  },
+  "mean_entropy": 0.4780525586150984,
+  "tta": "sliding",
+  "window_size": 512,
+  "stride": 256,
+  "scales": [
+    1.0
+  ]
+}

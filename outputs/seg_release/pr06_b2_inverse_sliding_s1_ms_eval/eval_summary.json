@@ -1,0 +1,22 @@
+{
+  "checkpoint": "outputs/seg_release/pr05_b2_cedice_inverse_basic_aug/checkpoints/best_model.pth",
+  "num_samples": 1669,
+  "mean_iou": 0.5399637539691203,
+  "pixel_accuracy": 0.7110345475842446,
+  "per_class_iou": {
+    "background": 0.5344358326098615,
+    "building": 0.6393990618588503,
+    "road": 0.548549588312851,
+    "water": 0.7116127388188993,
+    "barren": 0.3524802931993436,
+    "forest": 0.43685034674343715,
+    "agriculture": 0.5564184162405995
+  },
+  "mean_entropy": 0.3651871122728136,
+  "tta": "sliding",
+  "window_size": 512,
+  "stride": 256,
+  "scales": [
+    1.0
+  ]
+}

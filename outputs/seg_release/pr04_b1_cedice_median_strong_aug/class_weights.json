@@ -1,0 +1,15 @@
+{
+  "mode": "median",
+  "beta": 0.9999,
+  "class_stats": "outputs/class_stats/urban_rural.json",
+  "weights": {
+    "ignore": 0.0,
+    "background": 0.3090929687023163,
+    "building": 1.0,
+    "road": 2.098820924758911,
+    "water": 1.7298222780227661,
+    "barren": 2.120496988296509,
+    "forest": 0.6881220936775208,
+    "agriculture": 0.5476513504981995
+  }
+}

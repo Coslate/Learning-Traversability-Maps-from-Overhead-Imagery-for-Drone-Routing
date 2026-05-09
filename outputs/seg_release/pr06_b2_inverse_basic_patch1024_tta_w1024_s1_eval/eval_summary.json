@@ -1,0 +1,22 @@
+{
+  "checkpoint": "outputs/seg_release/ablate_b2_cedice_inverse_patch1024/checkpoints/best_model.pth",
+  "num_samples": 1669,
+  "mean_iou": 0.5315316997456578,
+  "pixel_accuracy": 0.7068140613211492,
+  "per_class_iou": {
+    "background": 0.5273611347736812,
+    "building": 0.6525085452349532,
+    "road": 0.5440962580406336,
+    "water": 0.6767786541115217,
+    "barren": 0.3364641752428582,
+    "forest": 0.4228541373658843,
+    "agriculture": 0.5606589934500723
+  },
+  "mean_entropy": 0.2846396617105771,
+  "tta": "sliding",
+  "window_size": 1024,
+  "stride": 512,
+  "scales": [
+    1.0
+  ]
+}
